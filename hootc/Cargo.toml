@@ -1,0 +1,11 @@
+[package]
+name = "hootc"
+version = "0.1.0"
+authors = ["Benjamin Thomas (Aviansie Ben) <ben@benthomas.ca>"]
+
+[dependencies]
+libhootc = { path = "../libhootc" }
+
+[profile.release]
+lto = true
+panic = 'abort'

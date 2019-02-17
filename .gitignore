@@ -1,0 +1,7 @@
+/hootc/target
+/libhootc/target
+**/*.rs.bk
+Cargo.lock
+
+*.iml
+.idea
