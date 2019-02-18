@@ -61,6 +61,8 @@ pub fn optimize_program(prog: &mut IlProgram, w: &mut Write) {
     let mut funcs = prog.funcs.keys().cloned().collect_vec();
     let mut sites = vec![];
 
+    funcs.sort_by_key(|sym| sym.0);
+
     while !funcs.is_empty() {
         funcs.drain_filter(|sym| {
             inliner::do_inlining_decision_phase(prog, &prog.funcs[&sym], &mut sites, w);
