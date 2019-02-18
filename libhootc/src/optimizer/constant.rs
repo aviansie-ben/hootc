@@ -4,7 +4,7 @@ use std::io::Write;
 
 use smallvec::SmallVec;
 
-use super::{do_merge_blocks_group, eliminate_dead_stores};
+use super::{do_merge_blocks_group, eliminate_dead_stores, eliminate_local_common_subexpressions};
 use super::analysis::{Def, ExtendedBlocks, LivenessGraph, ReachingDefs};
 use super::flow_graph::FlowGraph;
 use crate::il::{IlBlockId, IlConst, IlFunction, IlEndingInstructionKind, IlInstructionKind, IlOperand, IlRegister};
@@ -431,6 +431,8 @@ pub fn do_constant_fold_group(
     defs.recompute(func, cfg, liveness.global_regs(), w);
     let mut cont = propagate_and_fold_constants(func, defs, w) != 0;
 
+    cont = eliminate_local_common_subexpressions(func, ebbs, w) != 0 || cont;
+
     liveness.recompute(func, cfg, w);
     cont = eliminate_dead_stores(func, liveness, w) != 0 || cont;
 
@@ -449,6 +451,8 @@ pub fn do_constant_fold_group(
         liveness.recompute_global_regs(func, w);
         defs.recompute(func, cfg, liveness.global_regs(), w);
         cont = propagate_and_fold_constants(func, defs, w) != 0;
+
+        cont = eliminate_local_common_subexpressions(func, ebbs, w) != 0 || cont;
 
         liveness.recompute(func, cfg, w);
         cont = eliminate_dead_stores(func, liveness, w) != 0 || cont;
