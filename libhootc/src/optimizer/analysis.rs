@@ -8,8 +8,7 @@ use itertools::{self, Itertools};
 use smallvec::SmallVec;
 
 use crate::bitvec::BitVec;
-use crate::il::{IlBlock, IlBlockId, IlEndingInstruction, IlEndingInstructionKind, IlFunction, IlOperand, IlRegister};
-use crate::lex::Span;
+use crate::il::{IlBlock, IlBlockId, IlEndingInstruction, IlEndingInstructionKind, IlFunction, IlOperand, IlRegister, IlSpanId};
 use super::flow_graph::FlowGraph;
 
 struct BlockLivenessInfo {
@@ -786,7 +785,7 @@ impl Loops {
                 let mut pre_header_block = IlBlock::new();
                 pre_header_block.end_instr = IlEndingInstruction::new(
                     IlEndingInstructionKind::Jump(l.header),
-                    Span::dummy()
+                    IlSpanId::dummy()
                 );
 
                 l.pre_header = func.add_block(pre_header_block);

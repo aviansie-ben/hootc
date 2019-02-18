@@ -156,32 +156,49 @@ impl <T: Hash + Eq + Copy + Debug> Default for FlowGraph<T> {
 impl FlowGraph<IlBlockId> {
     pub fn for_func(f: &IlFunction) -> FlowGraph<IlBlockId> {
         let mut graph = FlowGraph::new();
+        graph.recompute(f);
+
+        graph
+    }
+
+    pub fn recompute(&mut self, f: &IlFunction) {
+        let mut nodes_to_reuse = self.nodes.drain().map(|(_, n)| n).collect_vec();
+        let mut alloc_node = || {
+            if let Some(mut n) = nodes_to_reuse.pop() {
+                n.edges.clear();
+                n.rev_edges.clear();
+                n.returns = false;
+                n
+            } else {
+                FlowGraphNode::new()
+            }
+        };
+
+        self.returning_nodes.clear();
 
         for &id in f.block_order.iter() {
-            graph.add_node(id);
+            self.nodes.insert(id, alloc_node());
         };
 
         for (&prev_id, &next_id) in f.block_order.iter().tuple_windows() {
             let prev = &f.blocks[&prev_id];
 
             if matches!(prev.end_instr.node, IlEndingInstructionKind::Return(_)) {
-                graph.add_return_edge(prev_id);
-            }
+                self.add_return_edge(prev_id);
+            };
 
             if prev.end_instr.node.can_fall_through() {
-                graph.add_edge(prev_id, next_id);
+                self.add_edge(prev_id, next_id);
             };
 
             if let Some(target) = prev.end_instr.node.target_block() {
-                graph.add_edge(prev_id, target);
+                self.add_edge(prev_id, target);
             };
         };
 
         if let Some(target) = f.blocks[f.block_order.last().unwrap()].end_instr.node.target_block() {
-            graph.add_edge(*f.block_order.last().unwrap(), target);
+            self.add_edge(*f.block_order.last().unwrap(), target);
         };
-
-        graph
     }
 
     pub fn pretty<'a>(&'a self, func: &'a IlFunction) -> impl Display + 'a {

@@ -32,10 +32,10 @@ pub struct IlBuilder<'a> {
 }
 
 impl <'a> IlBuilder<'a> {
-    pub fn new(log: SharedWrite<dyn Write>) -> IlBuilder {
+    pub fn new(sym: SymId, log: SharedWrite<dyn Write>) -> IlBuilder {
         IlBuilder {
             current_block: IlBlock::new(),
-            func: IlFunction::new(),
+            func: IlFunction::new(sym),
             log
         }
     }
@@ -67,7 +67,7 @@ impl <'a> IlBuilder<'a> {
             self.func.reg_map.add_reg_info(reg, match *syms.find(sym) {
                 SymDef { node: SymDefKind::Function(_), .. } => unimplemented!(),
                 SymDef { node: SymDefKind::Local, ty, .. } => IlRegisterInfo(
-                    IlRegisterType::Local(sym),
+                    IlRegisterType::Local(sym, IlSpanId::dummy()),
                     map_to_il_type(ty, types)
                 ),
                 SymDef { node: SymDefKind::Param(p), ty, .. } => IlRegisterInfo(
@@ -81,6 +81,11 @@ impl <'a> IlBuilder<'a> {
     }
 
     pub fn append_instruction(&mut self, i: IlInstructionKind, span: Span) {
+        let span = if i.requires_unique_span_id() {
+            self.func.spans.force_append(span, IlSpanId::dummy())
+        } else {
+            self.func.spans.append(span, IlSpanId::dummy())
+        };
         self.current_block.instrs.push(IlInstruction::new(i, span));
     }
 
@@ -93,6 +98,7 @@ impl <'a> IlBuilder<'a> {
     }
 
     pub fn append_ending_instruction(&mut self, i: IlEndingInstructionKind, span: Span) -> IlBlockId {
+        let span = self.func.spans.append(span, IlSpanId::dummy());
         self.current_block.end_instr = IlEndingInstruction::new(i, span);
         self.end_block()
     }
@@ -218,7 +224,8 @@ fn generate_direct_call_il<'a>(
                 IlInstructionKind::Call(
                     tgt,
                     args.into_iter().map(IlOperand::Register).collect(),
-                    func
+                    func,
+                    0
                 ),
                 span
             );
@@ -528,9 +535,10 @@ fn generate_block_il(block: &ast::Block, tgt: IlRegister, b: &mut IlBuilder, ctx
 }
 
 fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction {
-    let mut b = IlBuilder::new(ctx.log.clone());
+    let sym = f.sym_id.unwrap();
+    let mut b = IlBuilder::new(sym, ctx.log.clone());
 
-    ctx.func = f.sym_id.unwrap();
+    ctx.func = sym;
 
     writeln!(ctx.log, "===== GENERATING IL FOR FUNCTION {} =====\n", ctx.func).unwrap();
 
@@ -556,7 +564,7 @@ fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction
 
     let f = b.finish();
 
-    writeln!(ctx.log, "\n===== GENERATED IL =====\n\n{}", f).unwrap();
+    writeln!(ctx.log, "\n===== GENERATED IL =====\n\n{}\n{}", f, f.spans).unwrap();
 
     f
 }

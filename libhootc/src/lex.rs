@@ -168,7 +168,7 @@ impl fmt::Debug for Pos {
 
 impl PartialEq for Pos {
     fn eq(&self, other: &Pos) -> bool {
-        self.line == other.line
+        self.off == other.off
     }
 }
 

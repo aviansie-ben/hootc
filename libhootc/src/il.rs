@@ -36,6 +36,21 @@ impl From<usize> for IlBlockId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IlSpanId(pub u32);
+
+impl IlSpanId {
+    pub fn dummy() -> IlSpanId {
+        IlSpanId(!0)
+    }
+}
+
+impl fmt::Display for IlSpanId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct IlRegister(pub u32);
 
 impl fmt::Display for IlRegister {
@@ -98,7 +113,7 @@ pub enum IlInstructionKind {
     EqI32(IlRegister, IlOperand, IlOperand),
     NeI32(IlRegister, IlOperand, IlOperand),
     PrintI32(IlOperand),
-    Call(IlRegister, Vec<IlOperand>, SymId)
+    Call(IlRegister, Vec<IlOperand>, SymId, u8)
 }
 
 impl fmt::Display for IlInstructionKind {
@@ -116,12 +131,12 @@ impl fmt::Display for IlInstructionKind {
             EqI32(ref tgt, ref o1, ref o2) => write!(f, "eq.i32 {} {} {}", tgt, o1, o2),
             NeI32(ref tgt, ref o1, ref o2) => write!(f, "ne.i32 {} {} {}", tgt, o1, o2),
             PrintI32(ref o) => write!(f, "print.i32 {}", o),
-            Call(ref tgt, ref os, ref func) => {
+            Call(ref tgt, ref os, ref func, ref depth) => {
                 write!(f, "call {}", tgt)?;
                 for o in os {
                     write!(f, " {}", o)?;
                 };
-                write!(f, " {}", func)?;
+                write!(f, " {} [depth: {}]", func, depth)?;
                 Result::Ok(())
             }
         }
@@ -143,7 +158,7 @@ impl IlInstructionKind {
             EqI32(tgt, _, _) => Some(tgt),
             NeI32(tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
-            Call(tgt, _, _) => Some(tgt)
+            Call(tgt, _, _, _) => Some(tgt)
         }
     }
 
@@ -161,7 +176,7 @@ impl IlInstructionKind {
             EqI32(ref mut tgt, _, _) => Some(tgt),
             NeI32(ref mut tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
-            Call(ref mut tgt, _, _) => Some(tgt)
+            Call(ref mut tgt, _, _, _) => Some(tgt)
         }
     }
 
@@ -204,7 +219,7 @@ impl IlInstructionKind {
             PrintI32(ref o) => {
                 f(o);
             },
-            Call(_, ref os, _) => {
+            Call(_, ref os, _, _) => {
                 os.iter().for_each(f);
             }
         };
@@ -249,7 +264,7 @@ impl IlInstructionKind {
             PrintI32(ref mut o) => {
                 f(o);
             },
-            Call(_, ref mut os, _) => {
+            Call(_, ref mut os, _, _) => {
                 os.iter_mut().for_each(f);
             }
         };
@@ -259,7 +274,7 @@ impl IlInstructionKind {
         use self::IlInstructionKind::*;
         match *self {
             PrintI32(_) => false,
-            Call(_, _, _) => false,
+            Call(_, _, _, _) => false,
             _ => true
         }
     }
@@ -269,8 +284,19 @@ impl IlInstructionKind {
         match *self {
             Copy(_, _) => false,
             PrintI32(_) => false,
-            Call(_, _, _) => false,
+            Call(_, _, _, _) => false,
             _ => true
+        }
+    }
+
+    pub fn requires_unique_span_id(&self) -> bool {
+        use self::IlInstructionKind::*;
+        match *self {
+            // The inliner will use span ids to differentiate between inlined sites. As a result, we
+            // must ensure that each call instruction gets a different span id, lest the inliner
+            // become confused.
+            Call(_, _, _, _) => true,
+            _ => false
         }
     }
 }
@@ -362,11 +388,11 @@ impl fmt::Display for IlEndingInstructionKind {
 #[derive(Clone)]
 pub struct IlWrappedInstruction<T> {
     pub node: T,
-    pub span: Span
+    pub span: IlSpanId
 }
 
 impl <T> IlWrappedInstruction<T> {
-    pub fn new(node: T, span: Span) -> IlWrappedInstruction<T> {
+    pub fn new(node: T, span: IlSpanId) -> IlWrappedInstruction<T> {
         IlWrappedInstruction { node, span }
     }
 }
@@ -375,9 +401,8 @@ impl <T: fmt::Display> fmt::Display for IlWrappedInstruction<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.node)?;
 
-        if self.span != Span::dummy() {
-            let Span { lo, hi } = self.span;
-            write!(f, " [span: {}:{} - {}:{}]", lo.line, lo.col, hi.line, hi.col)?;
+        if self.span != IlSpanId::dummy() {
+            write!(f, " [span: {}]", self.span)?;
         };
 
         Result::Ok(())
@@ -387,6 +412,7 @@ impl <T: fmt::Display> fmt::Display for IlWrappedInstruction<T> {
 pub type IlInstruction = IlWrappedInstruction<IlInstructionKind>;
 pub type IlEndingInstruction = IlWrappedInstruction<IlEndingInstructionKind>;
 
+#[derive(Clone)]
 pub struct IlBlock {
     pub id: IlBlockId,
     pub instrs: Vec<IlInstruction>,
@@ -398,7 +424,7 @@ impl IlBlock {
         IlBlock {
             id: IlBlockId(!0),
             instrs: vec![],
-            end_instr: IlEndingInstruction::new(IlEndingInstructionKind::Nop, Span::dummy())
+            end_instr: IlEndingInstruction::new(IlEndingInstructionKind::Nop, IlSpanId::dummy())
         }
     }
 }
@@ -435,9 +461,17 @@ impl IlRegisterAllocator {
     }
 
     pub fn allocate(&mut self) -> IlRegister {
+        self.allocate_many(1)
+    }
+
+    pub fn allocate_many(&mut self, n: u32) -> IlRegister {
         let r = self.next;
-        self.next = IlRegister(r.0 + 1);
+        self.next = IlRegister(r.0 + n);
         r
+    }
+
+    pub fn next(&self) -> IlRegister {
+        self.next
     }
 }
 
@@ -449,7 +483,7 @@ impl Default for IlRegisterAllocator {
 
 #[derive(Debug, Clone)]
 pub enum IlRegisterType {
-    Local(SymId),
+    Local(SymId, IlSpanId),
     Param(SymId, u32),
     Temp
 }
@@ -489,6 +523,10 @@ impl IlRegisterMap {
         self.reg_info.insert(reg, info);
     }
 
+    pub fn regs<'a>(&'a self) -> impl Iterator<Item=(IlRegister, &'a IlRegisterInfo)> + 'a {
+        self.reg_info.iter().map(|(&k, v)| (k, v))
+    }
+
     pub fn set_params(&mut self, params: Vec<IlRegister>) {
         self.param_regs = params;
     }
@@ -504,21 +542,87 @@ impl Default for IlRegisterMap {
     }
 }
 
+pub struct IlSpanMap {
+    spans: Vec<(Span, IlSpanId)>
+}
+
+impl IlSpanMap {
+    pub fn new() -> IlSpanMap {
+        IlSpanMap { spans: vec![] }
+    }
+
+    pub fn get(&self, id: IlSpanId) -> (Span, IlSpanId) {
+        self.spans[id.0 as usize]
+    }
+
+    pub fn append(&mut self, span: Span, inlined_at: IlSpanId) -> IlSpanId {
+        if self.spans.last() != Some(&(span, inlined_at)) {
+            self.spans.push((span, inlined_at));
+        };
+
+        IlSpanId((self.spans.len() - 1) as u32)
+    }
+
+    pub fn force_append(&mut self, span: Span, inlined_at: IlSpanId) -> IlSpanId {
+        self.spans.push((span, inlined_at));
+        IlSpanId((self.spans.len() - 1) as u32)
+    }
+
+    pub fn len(&self) -> usize {
+        self.spans.len()
+    }
+
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId))> + 'a {
+        self.spans.iter().cloned().enumerate().map(|(i, s)| (IlSpanId(i as u32), s))
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId))> {
+        self.spans.into_iter().enumerate().map(|(i, s)| (IlSpanId(i as u32), s))
+    }
+}
+
+impl Default for IlSpanMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Display for IlSpanMap {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, &(span, inlined_at)) in self.spans.iter().enumerate() {
+            let Span { lo, hi } = span;
+            write!(f, "[{}]: {}:{} - {}:{}", i, lo.line, lo.col, hi.line, hi.col)?;
+
+            if inlined_at != IlSpanId::dummy() {
+                write!(f, ", inlined at {}", inlined_at)?;
+            };
+
+            writeln!(f)?;
+        };
+
+        Result::Ok(())
+    }
+}
+
 pub struct IlFunction {
+    pub sym: SymId,
     pub blocks: HashMap<IlBlockId, IlBlock>,
     pub block_order: Vec<IlBlockId>,
     pub reg_alloc: IlRegisterAllocator,
     pub reg_map: IlRegisterMap,
+    pub spans: IlSpanMap,
     pub next_block_id: IlBlockId
 }
 
 impl IlFunction {
-    pub fn new() -> IlFunction {
+    pub fn new(sym: SymId) -> IlFunction {
         IlFunction {
+            sym,
             blocks: HashMap::new(),
             block_order: vec![],
             reg_alloc: IlRegisterAllocator::new(),
             reg_map: IlRegisterMap::new(),
+            spans: IlSpanMap::new(),
             next_block_id: IlBlockId(0)
         }
     }
@@ -540,18 +644,16 @@ impl IlFunction {
     }
 }
 
-impl Default for IlFunction {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl fmt::Display for IlFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (&reg, reg_info) in self.reg_map.reg_info.iter() {
             match reg_info.0 {
-                IlRegisterType::Local(id) => {
-                    writeln!(f, ".local {} {}", reg, id)?;
+                IlRegisterType::Local(id, inlined_at) => {
+                    write!(f, ".local {} {}", reg, id)?;
+                    if inlined_at != IlSpanId::dummy() {
+                        write!(f, " [inline: {}]", inlined_at)?;
+                    };
+                    writeln!(f)?;
                 },
                 IlRegisterType::Param(id, n) => {
                     writeln!(f, ".local {} {}", reg, id)?;
