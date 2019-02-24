@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::mem;
 
-use super::{eliminate_dead_stores, propagate_copies_locally};
+use super::{do_merge_blocks_group, eliminate_dead_stores, propagate_copies_locally};
 use super::analysis::AnalysisStructures;
 use crate::bitvec::BitVec;
 use crate::il::*;
@@ -118,4 +118,6 @@ pub fn do_loop_opt_group(
 
     structs.liveness.recompute(func, &structs.cfg, w);
     eliminate_dead_stores(func, &mut structs.liveness, w);
+
+    do_merge_blocks_group(func, &mut structs.cfg, w);
 }
