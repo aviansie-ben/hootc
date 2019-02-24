@@ -3,16 +3,16 @@ use std::io::Write;
 use std::mem;
 
 use super::{eliminate_dead_stores, propagate_copies_locally};
-use super::analysis::{Dominance, ExtendedBlocks, ReachingDefs, LivenessGraph, Loops};
-use super::flow_graph::FlowGraph;
+use super::analysis::AnalysisStructures;
 use crate::bitvec::BitVec;
 use crate::il::*;
 
 pub fn move_loop_invariant_code(
     func: &mut IlFunction,
-    loops: &mut Loops,
+    structs: &AnalysisStructures,
     w: &mut Write
 ) -> usize {
+    let loops = &structs.loops;
     writeln!(w, "\n===== LOOP INVARIANT CODE MOTION =====\n").unwrap();
 
     let mut num_moved = 0;
@@ -99,28 +99,23 @@ pub fn move_loop_invariant_code(
 
 pub fn do_loop_opt_group(
     func: &mut IlFunction,
-    cfg: &mut FlowGraph<IlBlockId>,
-    liveness: &mut LivenessGraph,
-    defs: &mut ReachingDefs,
-    ebbs: &mut ExtendedBlocks,
-    dom: &mut Dominance,
-    loops: &mut Loops,
+    structs: &mut AnalysisStructures,
     w: &mut Write
 ) {
-    dom.recompute(func, cfg, w);
-    loops.recompute(func, cfg, dom, w);
+    structs.dom.recompute(func, &structs.cfg, w);
+    structs.loops.recompute(func, &mut structs.cfg, &structs.dom, w);
 
-    if loops.loops.is_empty() {
+    if structs.loops.loops.is_empty() {
         return;
     };
 
-    move_loop_invariant_code(func, loops, w);
+    move_loop_invariant_code(func, structs, w);
 
-    ebbs.recompute(func, cfg, w);
-    liveness.recompute_global_regs(func, w);
-    defs.recompute(func, cfg, liveness.global_regs(), w);
-    propagate_copies_locally(func, ebbs, w);
+    structs.ebbs.recompute(func, &structs.cfg, w);
+    structs.liveness.recompute_global_regs(func, w);
+    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
+    propagate_copies_locally(func, structs, w);
 
-    liveness.recompute(func, cfg, w);
-    eliminate_dead_stores(func, liveness, w);
+    structs.liveness.recompute(func, &structs.cfg, w);
+    eliminate_dead_stores(func, &mut structs.liveness, w);
 }

@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 use crate::bitvec::BitVec;
 use crate::il::{IlFunction, IlInstructionKind, IlOperand, IlRegister};
-use super::analysis::ExtendedBlocks;
+use super::analysis::AnalysisStructures;
 
 enum Expr {
     Neg(IlOperand),
@@ -87,8 +87,10 @@ impl Expr {
 }
 
 pub fn eliminate_local_common_subexpressions(
-    func: &mut IlFunction, ebbs: &ExtendedBlocks, w: &mut Write
+    func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write
 ) -> usize {
+    let ebbs = &structs.ebbs;
+
     writeln!(w, "\n===== LOCAL COMMON SUBEXPRESSION ELIMINATION =====\n").unwrap();
 
     let mut num_replaced = 0;

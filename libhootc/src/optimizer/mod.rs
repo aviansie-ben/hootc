@@ -22,16 +22,11 @@ use crate::il::{IlFunction, IlProgram};
 pub fn optimize_function_pre_inlining(func: &mut IlFunction, w: &mut Write) {
     writeln!(w, "\n===== RUNNING PRE-INLINING OPTIMIZATIONS FOR FUNCTION {} =====\n", func.sym).unwrap();
 
-    let mut cfg = flow_graph::FlowGraph::for_func(func);
-    let mut liveness = analysis::LivenessGraph::new();
-    let mut defs = analysis::ReachingDefs::new();
-    let mut ebbs = analysis::ExtendedBlocks::new();
-    let mut dom = analysis::Dominance::new();
-    let mut loops = analysis::Loops::new();
+    let mut structs = analysis::AnalysisStructures::for_func(func);
 
-    do_merge_blocks_group(func, &mut cfg, w);
-    do_constant_fold_group(func, &mut cfg, &mut liveness, &mut defs, &mut ebbs, w);
-    do_loop_opt_group(func, &mut cfg, &mut liveness, &mut defs, &mut ebbs, &mut dom, &mut loops, w);
+    do_merge_blocks_group(func, &mut structs.cfg, w);
+    do_constant_fold_group(func, &mut structs, w);
+    do_loop_opt_group(func, &mut structs, w);
 
     writeln!(w, "\n===== AFTER PRE-INLINING OPTIMIZATIONS =====\n\n{}", func).unwrap();
 }
@@ -39,16 +34,11 @@ pub fn optimize_function_pre_inlining(func: &mut IlFunction, w: &mut Write) {
 pub fn optimize_function_post_inlining(func: &mut IlFunction, w: &mut Write) {
     writeln!(w, "\n===== RUNNING POST-INLINING OPTIMIZATIONS FOR FUNCTION {} =====\n", func.sym).unwrap();
 
-    let mut cfg = flow_graph::FlowGraph::for_func(func);
-    let mut liveness = analysis::LivenessGraph::new();
-    let mut defs = analysis::ReachingDefs::new();
-    let mut ebbs = analysis::ExtendedBlocks::new();
-    let mut dom = analysis::Dominance::new();
-    let mut loops = analysis::Loops::new();
+    let mut structs = analysis::AnalysisStructures::for_func(func);
 
-    do_merge_blocks_group(func, &mut cfg, w);
-    do_constant_fold_group(func, &mut cfg, &mut liveness, &mut defs, &mut ebbs, w);
-    do_loop_opt_group(func, &mut cfg, &mut liveness, &mut defs, &mut ebbs, &mut dom, &mut loops, w);
+    do_merge_blocks_group(func, &mut structs.cfg, w);
+    do_constant_fold_group(func, &mut structs, w);
+    do_loop_opt_group(func, &mut structs, w);
 
     writeln!(w, "\n===== AFTER POST-INLINING OPTIMIZATIONS =====\n\n{}", func).unwrap();
 }

@@ -5,8 +5,7 @@ use std::io::Write;
 use smallvec::SmallVec;
 
 use super::{do_merge_blocks_group, eliminate_dead_stores, eliminate_local_common_subexpressions};
-use super::analysis::{Def, ExtendedBlocks, LivenessGraph, ReachingDefs};
-use super::flow_graph::FlowGraph;
+use super::analysis::{AnalysisStructures, Def};
 use crate::il::{IlBlockId, IlConst, IlFunction, IlEndingInstructionKind, IlInstructionKind, IlOperand, IlRegister};
 
 fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
@@ -26,7 +25,9 @@ fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     })
 }
 
-pub fn propagate_and_fold_constants(func: &mut IlFunction, defs: &ReachingDefs, w: &mut Write) -> usize {
+pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write) -> usize {
+    let defs = &structs.defs;
+
     writeln!(w, "\n===== CONSTANT PROPAGATION AND FOLDING =====\n").unwrap();
 
     let mut num_replaced = 0;
@@ -114,7 +115,9 @@ pub fn propagate_and_fold_constants(func: &mut IlFunction, defs: &ReachingDefs, 
     num_replaced
 }
 
-pub fn propagate_copies_locally(func: &mut IlFunction, ebbs: &ExtendedBlocks, w: &mut Write) -> usize {
+pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write) -> usize {
+    let ebbs = &structs.ebbs;
+
     writeln!(w, "\n===== LOCAL COPY PROPAGATION =====\n").unwrap();
 
     let mut num_replaced = 0;
@@ -196,9 +199,11 @@ fn calc_constant_jump_condition(instr: &IlEndingInstructionKind) -> Option<bool>
 
 pub fn simplify_constant_jump_conditions(
     func: &mut IlFunction,
-    cfg: &mut FlowGraph<IlBlockId>,
+    structs: &mut AnalysisStructures,
     w: &mut Write
 ) -> usize {
+    let cfg = &mut structs.cfg;
+
     writeln!(w, "\n===== CONSTANT JUMP SIMPLIFICATION =====\n").unwrap();
 
     let mut num_simplified = 0;
@@ -418,25 +423,22 @@ pub fn simplify_jump_conditions(func: &mut IlFunction, w: &mut Write) -> usize {
 
 pub fn do_constant_fold_group(
     func: &mut IlFunction,
-    cfg: &mut FlowGraph<IlBlockId>,
-    liveness: &mut LivenessGraph,
-    defs: &mut ReachingDefs,
-    ebbs: &mut ExtendedBlocks,
+    structs: &mut AnalysisStructures,
     w: &mut Write
 ) -> bool {
-    ebbs.recompute(func, cfg, w);
-    propagate_copies_locally(func, ebbs, w);
+    structs.ebbs.recompute(func, &structs.cfg, w);
+    propagate_copies_locally(func, structs, w);
 
-    liveness.recompute_global_regs(func, w);
-    defs.recompute(func, cfg, liveness.global_regs(), w);
-    let mut cont = propagate_and_fold_constants(func, defs, w) != 0;
+    structs.liveness.recompute_global_regs(func, w);
+    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
+    let mut cont = propagate_and_fold_constants(func, structs, w) != 0;
 
-    cont = eliminate_local_common_subexpressions(func, ebbs, w) != 0 || cont;
+    cont = eliminate_local_common_subexpressions(func, structs, w) != 0 || cont;
 
-    liveness.recompute(func, cfg, w);
-    cont = eliminate_dead_stores(func, liveness, w) != 0 || cont;
+    structs.liveness.recompute(func, &structs.cfg, w);
+    cont = eliminate_dead_stores(func, &mut structs.liveness, w) != 0 || cont;
 
-    cont = simplify_constant_jump_conditions(func, cfg, w) != 0 || cont;
+    cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
     cont = simplify_algebraically(func, w) != 0 || cont;
     cont = simplify_jump_conditions(func, w) != 0 || cont;
 
@@ -445,19 +447,19 @@ pub fn do_constant_fold_group(
     };
 
     while cont {
-        ebbs.recompute(func, cfg, w);
-        propagate_copies_locally(func, ebbs, w);
+        structs.ebbs.recompute(func, &structs.cfg, w);
+        propagate_copies_locally(func, structs, w);
 
-        liveness.recompute_global_regs(func, w);
-        defs.recompute(func, cfg, liveness.global_regs(), w);
-        cont = propagate_and_fold_constants(func, defs, w) != 0;
+        structs.liveness.recompute_global_regs(func, w);
+        structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
+        cont = propagate_and_fold_constants(func, structs, w) != 0;
 
-        cont = eliminate_local_common_subexpressions(func, ebbs, w) != 0 || cont;
+        cont = eliminate_local_common_subexpressions(func, structs, w) != 0 || cont;
 
-        liveness.recompute(func, cfg, w);
-        cont = eliminate_dead_stores(func, liveness, w) != 0 || cont;
+        structs.liveness.recompute(func, &structs.cfg, w);
+        cont = eliminate_dead_stores(func, &mut structs.liveness, w) != 0 || cont;
 
-        cont = simplify_constant_jump_conditions(func, cfg, w) != 0 || cont;
+        cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
         cont = simplify_algebraically(func, w) != 0 || cont;
         cont = simplify_jump_conditions(func, w) != 0 || cont;
     };

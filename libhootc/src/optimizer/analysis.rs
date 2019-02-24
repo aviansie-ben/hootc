@@ -11,6 +11,28 @@ use crate::bitvec::BitVec;
 use crate::il::{IlBlock, IlBlockId, IlEndingInstruction, IlEndingInstructionKind, IlFunction, IlOperand, IlRegister, IlSpanId};
 use super::flow_graph::FlowGraph;
 
+pub struct AnalysisStructures {
+    pub cfg: FlowGraph<IlBlockId>,
+    pub liveness: LivenessGraph,
+    pub defs: ReachingDefs,
+    pub ebbs: ExtendedBlocks,
+    pub dom: Dominance,
+    pub loops: Loops
+}
+
+impl AnalysisStructures {
+    pub fn for_func(f: &IlFunction) -> AnalysisStructures {
+        AnalysisStructures {
+            cfg: FlowGraph::for_func(f),
+            liveness: LivenessGraph::new(),
+            defs: ReachingDefs::new(),
+            ebbs: ExtendedBlocks::new(),
+            dom: Dominance::new(),
+            loops: Loops::new()
+        }
+    }
+}
+
 struct BlockLivenessInfo {
     live_begin: HashSet<IlRegister>,
     live_end: HashSet<IlRegister>,
