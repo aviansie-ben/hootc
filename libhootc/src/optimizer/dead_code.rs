@@ -29,6 +29,10 @@ pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockI
             writeln!(w, "Eliminating dead block {}", id).unwrap();
 
             blocks.remove(&id);
+            if cfg.get(id).returns {
+                cfg.remove_return_edge(id);
+            };
+
             for succ in cfg.remove_node(id).edges {
                 if let Some(succ) = cfg.try_get_mut(succ) {
                     succ.rev_edges.remove_item(&id);
