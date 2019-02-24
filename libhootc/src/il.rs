@@ -91,6 +91,15 @@ pub enum IlOperand {
     Const(IlConst)
 }
 
+impl IlOperand {
+    pub fn data_type(&self, reg_map: &IlRegisterMap) -> IlType {
+        match *self {
+            IlOperand::Register(reg) => reg_map.get_reg_info(reg).1,
+            IlOperand::Const(IlConst::I32(_)) => IlType::I32
+        }
+    }
+}
+
 impl fmt::Display for IlOperand {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {

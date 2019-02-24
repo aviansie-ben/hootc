@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io::Write;
 
+use itertools::Itertools;
 use smallvec::SmallVec;
 
 use super::{do_merge_blocks_group, eliminate_dead_stores, eliminate_local_common_subexpressions};
 use super::analysis::{AnalysisStructures, Def};
-use crate::il::{IlBlockId, IlConst, IlFunction, IlEndingInstructionKind, IlInstructionKind, IlOperand, IlRegister};
+use crate::il::*;
 
 fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     use crate::il::IlConst::*;
@@ -421,6 +422,77 @@ pub fn simplify_jump_conditions(func: &mut IlFunction, w: &mut Write) -> usize {
     num_simplified
 }
 
+pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructures, w: &mut Write) -> usize {
+    let cfg = &mut structs.cfg;
+
+    writeln!(w, "\n===== TAIL CALL ELIMINATION =====\n").unwrap();
+
+    let mut num_eliminated = 0;
+    let start_block = func.block_order.first().cloned().unwrap();
+
+    for id in cfg.returning_nodes().iter().cloned().collect_vec() {
+        let block = func.blocks.get_mut(&id).unwrap();
+        let return_reg = if let IlEndingInstructionKind::Return(IlOperand::Register(reg)) = block.end_instr.node {
+            reg
+        } else {
+            continue;
+        };
+
+        let (span, (tgt, params, callee)) = if let Some(last_instr) = block.instrs.last() {
+            (last_instr.span, if let IlInstructionKind::Call(tgt, ref params, callee, _) = last_instr.node {
+                (tgt, params, callee)
+            } else {
+                continue;
+            })
+        } else {
+            continue;
+        };
+
+        if tgt != return_reg || callee != func.sym {
+            continue;
+        };
+
+        writeln!(w, "Turning tail call to self in {} into a jump to {}", id, start_block).unwrap();
+
+        let params = params.clone();
+        let first_param_temp = func.reg_alloc.allocate_many(params.len() as u32);
+
+        block.instrs.pop();
+
+        for (i, param) in params.into_iter().enumerate() {
+            let tmp_reg = IlRegister(first_param_temp.0 + i as u32);
+            let ty = param.data_type(&func.reg_map);
+
+            func.reg_map.add_reg_info(tmp_reg, IlRegisterInfo(IlRegisterType::Temp, ty));
+            block.instrs.push(IlInstruction::new(
+                IlInstructionKind::Copy(tmp_reg, param),
+                span
+            ));
+        };
+
+        for (i, param_reg) in func.reg_map.params().iter().cloned().enumerate() {
+            let tmp_reg = IlRegister(first_param_temp.0 + i as u32);
+            block.instrs.push(IlInstruction::new(
+                IlInstructionKind::Copy(param_reg, IlOperand::Register(tmp_reg)),
+                span
+            ));
+        };
+
+        block.end_instr.node = IlEndingInstructionKind::Jump(start_block);
+
+        cfg.remove_return_edge(id);
+        cfg.add_edge(id, start_block);
+
+        num_eliminated += 1;
+    };
+
+    if num_eliminated != 0 {
+        writeln!(w, "\n===== AFTER TAIL CALL ELIMINATION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+    };
+
+    num_eliminated
+}
+
 pub fn do_constant_fold_group(
     func: &mut IlFunction,
     structs: &mut AnalysisStructures,
@@ -441,6 +513,7 @@ pub fn do_constant_fold_group(
     cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
     cont = simplify_algebraically(func, w) != 0 || cont;
     cont = simplify_jump_conditions(func, w) != 0 || cont;
+    cont = eliminate_tail_calls(func, structs, w) != 0 || cont;
 
     if !cont {
         return false;
@@ -462,6 +535,7 @@ pub fn do_constant_fold_group(
         cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
         cont = simplify_algebraically(func, w) != 0 || cont;
         cont = simplify_jump_conditions(func, w) != 0 || cont;
+        cont = eliminate_tail_calls(func, structs, w) != 0 || cont;
     };
     true
 }
