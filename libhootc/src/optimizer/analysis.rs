@@ -610,6 +610,8 @@ impl Dominance {
 
         writeln!(w, "\n===== DOMINANCE  =====\n").unwrap();
 
+        let start_block = func.block_order[0];
+
         let mut old_bv = BitVec::new();
         let mut bv = BitVec::new();
 
@@ -617,17 +619,26 @@ impl Dominance {
             bv.set(id, true);
         };
 
-        for &id in func.block_order.iter() {
+        for (i, &id) in func.block_order.iter().enumerate() {
             let mut dom = self.dom.entry(id);
             let dom = match dom {
                 Entry::Occupied(ref mut e) => e.get_mut(),
                 Entry::Vacant(e) => e.insert(BitVec::new())
             };
-            dom.clone_from(&bv);
+            if i == 0 {
+                dom.clear();
+                dom.set(id, true);
+            } else {
+                dom.clone_from(&bv);
+            };
             worklist.push_back(id);
         };
 
         while let Some(id) = worklist.pop_front() {
+            if id == start_block {
+                continue;
+            };
+
             let node = cfg.get(id);
             let mut preds = node.rev_edges.iter().filter(|&&pred_id| pred_id != id);
 
