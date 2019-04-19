@@ -262,6 +262,11 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             *instr = IlInstructionKind::AddI32(tgt, Register(r), Const(I32(l)));
             true
         },
+        SubI32(tgt, Register(l), Const(I32(r))) => {
+            writeln!(w, "Canonicalized immediate subtraction into addition at {}:{}", id, i).unwrap();
+            *instr = IlInstructionKind::AddI32(tgt, Register(l), Const(I32(r.wrapping_neg())));
+            true
+        },
         MulI32(tgt, Const(I32(l)), Register(r)) => {
             writeln!(w, "Moved constant to RHS at {}:{}", id, i).unwrap();
             *instr = IlInstructionKind::MulI32(tgt, Register(r), Const(I32(l)));
