@@ -308,9 +308,9 @@ fn try_simplify_algebraically(
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
-        SubI32(tgt, Register(l), Const(I32(-1))) => {
+        MulI32(tgt, Register(l), Const(I32(-1))) => {
             writeln!(w, "Collapsed {} * -1 => -{} at {}:{}", l, l, id, i).unwrap();
-            *instr = IlInstructionKind::NegI32(tgt, Const(I32(0)));
+            *instr = IlInstructionKind::NegI32(tgt, Register(l));
             true
         },
         MulI32(tgt, Register(l), Const(I32(val))) if val.count_ones() == 1 => {
