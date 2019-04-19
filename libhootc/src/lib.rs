@@ -30,3 +30,4 @@ pub mod parse;
 pub mod sharedio;
 pub mod sym;
 pub mod types;
+pub(crate) mod util;

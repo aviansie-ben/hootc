@@ -334,6 +334,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
         },
         Return(ref val) => {
             generate_load_for_operand_into(val, RealRegister::Rax, ctx, span);
+            ctx.code.push(Instruction::new(InstructionKind::RegClear, instr.span));
             ctx.code.push(Instruction::new(
                 InstructionKind::Jump(ctx.end_label),
                 instr.span
@@ -381,6 +382,8 @@ pub fn generate_code(func: &IlFunction, w: &mut Write) -> Vec<Instruction> {
     for &id in func.block_order.iter() {
         generate_code_for_block(&func.blocks[&id], &mut ctx, w);
     };
+
+    ctx.code.push(Instruction::new(InstructionKind::Label(end_label), IlSpanId::dummy()));
 
     ctx.code
 }

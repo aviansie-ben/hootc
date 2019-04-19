@@ -52,7 +52,7 @@ pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockI
     num_eliminated
 }
 
-pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph, w: &mut Write) -> usize {
+pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph<IlBlockId>, w: &mut Write) -> usize {
     writeln!(w, "\n===== DEAD STORE ELIMINATION =====\n").unwrap();
 
     let mut num_eliminated = 0;

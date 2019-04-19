@@ -49,5 +49,20 @@ fn main() {
     for (_, f) in program.funcs {
         let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut io::stdout());
         lib::codegen::amd64::peephole::do_pre_ra_peephole(f.sym, &mut code, &mut io::stdout());
+        let code = lib::codegen::amd64::reg_alloc::RegisterAllocator::new(
+            lib::codegen::amd64::calling_convention::SysVCallingConvention(),
+            f.reg_alloc.clone()
+        ).allocate(
+            f.sym,
+            code,
+            f.reg_map.params().iter().map(|&reg| (reg, f.reg_map.get_reg_info(reg).1)),
+            &mut io::stdout()
+        );
+
+        println!("\n");
+        for instr in code.iter() {
+            println!("{}", instr.node);
+        };
+        println!();
     };
 }

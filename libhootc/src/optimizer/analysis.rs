@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
+use std::hash::Hash;
 use std::io::Write;
 use std::mem;
 
@@ -13,7 +14,7 @@ use super::flow_graph::FlowGraph;
 
 pub struct AnalysisStructures {
     pub cfg: FlowGraph<IlBlockId>,
-    pub liveness: LivenessGraph,
+    pub liveness: LivenessGraph<IlBlockId>,
     pub defs: ReachingDefs,
     pub ebbs: ExtendedBlocks,
     pub dom: Dominance,
@@ -33,11 +34,22 @@ impl AnalysisStructures {
     }
 }
 
-struct BlockLivenessInfo {
+pub struct BlockLivenessInfo {
     live_begin: HashSet<IlRegister>,
     live_end: HashSet<IlRegister>,
-    gen: HashSet<IlRegister>,
-    kill: HashSet<IlRegister>
+    pub gen: HashSet<IlRegister>,
+    pub kill: HashSet<IlRegister>
+}
+
+impl BlockLivenessInfo {
+    pub fn new(gen: HashSet<IlRegister>, kill: HashSet<IlRegister>) -> BlockLivenessInfo {
+        BlockLivenessInfo {
+            live_begin: gen.clone(),
+            live_end: HashSet::new(),
+            gen,
+            kill
+        }
+    }
 }
 
 fn compute_block_liveness_effects(
@@ -84,12 +96,12 @@ fn compute_block_liveness_effects(
     liveness
 }
 
-fn set_block_liveness(
-    id: IlBlockId,
-    all_liveness: &mut HashMap<IlBlockId, BlockLivenessInfo>,
+fn set_block_liveness<T: Debug + Display + Copy + Eq + Hash>(
+    id: T,
+    all_liveness: &mut HashMap<T, BlockLivenessInfo>,
     new_live_begin: HashSet<IlRegister>,
-    cfg: &FlowGraph<IlBlockId>,
-    worklist: &mut VecDeque<IlBlockId>,
+    cfg: &FlowGraph<T>,
+    worklist: &mut VecDeque<T>,
     w: &mut Write
 ) {
     write!(w, "{}: Recomputed, live_begin = {{ ", id).unwrap();
@@ -121,11 +133,11 @@ fn set_block_liveness(
     all_liveness.get_mut(&id).unwrap().live_begin = new_live_begin;
 }
 
-fn apply_block_liveness_effects(
-    id: IlBlockId,
-    all_liveness: &mut HashMap<IlBlockId, BlockLivenessInfo>,
-    cfg: &FlowGraph<IlBlockId>,
-    worklist: &mut VecDeque<IlBlockId>,
+fn apply_block_liveness_effects<T: Debug + Display + Copy + Eq + Hash>(
+    id: T,
+    all_liveness: &mut HashMap<T, BlockLivenessInfo>,
+    cfg: &FlowGraph<T>,
+    worklist: &mut VecDeque<T>,
     w: &mut Write
 ) {
     let liveness = all_liveness.get(&id).unwrap();
@@ -150,51 +162,23 @@ lazy_static! {
     static ref EMPTY_LIVE: HashSet<IlRegister> = HashSet::new();
 }
 
-pub struct LivenessGraph {
-    live: HashMap<IlBlockId, HashSet<IlRegister>>,
+pub struct LivenessGraph<T: Debug + Display + Copy + Eq + Hash> {
+    live: HashMap<T, HashSet<IlRegister>>,
     global_regs: BitVec<IlRegister>
 }
 
-impl LivenessGraph {
-    pub fn new() -> LivenessGraph {
+impl <T: Debug + Display + Copy + Eq + Hash> LivenessGraph<T> {
+    pub fn new() -> LivenessGraph<T> {
         LivenessGraph { live: HashMap::new(), global_regs: BitVec::new() }
     }
 
-    pub fn recompute_global_regs(&mut self, func: &IlFunction, _w: &mut Write) {
-        self.global_regs.clear();
-
-        let mut defined = BitVec::new();
-
-        for &id in func.block_order.iter() {
-            defined.clear();
-            for i in func.blocks[&id].instrs.iter() {
-                i.node.for_operands(|o| if let IlOperand::Register(reg) = *o {
-                    if !defined.get(reg) {
-                        self.global_regs.set(reg, true);
-                    };
-                });
-
-                if let Some(target) = i.node.target() {
-                    defined.set(target, true);
-                };
-            };
-        };
-    }
-
-    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, w: &mut Write) {
-        writeln!(w, "\n===== LIVENESS ANALYSIS =====\n").unwrap();
-
+    pub fn recompute_from_effects(&mut self, effects: Vec<(T, BlockLivenessInfo)>, cfg: &FlowGraph<T>, w: &mut Write) {
         self.global_regs.clear();
 
         let mut all_liveness = HashMap::new();
+        let order = effects.iter().map(|&(id, _)| id).collect_vec();
 
-        for &id in func.block_order.iter() {
-            let liveness = compute_block_liveness_effects(
-                &func.blocks[&id],
-                w,
-                self.live.remove(&id).unwrap_or_else(HashSet::new)
-            );
-
+        for (id, liveness) in effects {
             for &reg in liveness.gen.iter() {
                 self.global_regs.set(reg, true);
             };
@@ -214,9 +198,9 @@ impl LivenessGraph {
 
         writeln!(w).unwrap();
 
-        let mut worklist = VecDeque::with_capacity(func.block_order.len());
+        let mut worklist = VecDeque::with_capacity(order.len());
 
-        for &id in func.block_order.iter().rev() {
+        for id in order.into_iter().rev() {
             let new_live_begin = mem::replace(
                 &mut all_liveness.get_mut(&id).unwrap().live_begin,
                 HashSet::new()
@@ -242,11 +226,11 @@ impl LivenessGraph {
         };
     }
 
-    pub fn get(&self, id: IlBlockId) -> &HashSet<IlRegister> {
+    pub fn get(&self, id: T) -> &HashSet<IlRegister> {
         self.live.get(&id).unwrap_or(&EMPTY_LIVE)
     }
 
-    pub fn get_mut(&mut self, id: IlBlockId) -> &mut HashSet<IlRegister> {
+    pub fn get_mut(&mut self, id: T) -> &mut HashSet<IlRegister> {
         self.live.entry(id).or_insert_with(HashSet::new)
     }
 
@@ -255,9 +239,46 @@ impl LivenessGraph {
     }
 }
 
-impl Default for LivenessGraph {
+impl <T: Debug + Display + Copy + Eq + Hash> Default for LivenessGraph<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl LivenessGraph<IlBlockId> {
+    pub fn recompute_global_regs(&mut self, func: &IlFunction, _w: &mut Write) {
+        self.global_regs.clear();
+
+        let mut defined = BitVec::new();
+
+        for &id in func.block_order.iter() {
+            defined.clear();
+            for i in func.blocks[&id].instrs.iter() {
+                i.node.for_operands(|o| if let IlOperand::Register(reg) = *o {
+                    if !defined.get(reg) {
+                        self.global_regs.set(reg, true);
+                    };
+                });
+
+                if let Some(target) = i.node.target() {
+                    defined.set(target, true);
+                };
+            };
+        };
+    }
+
+    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, w: &mut Write) {
+        writeln!(w, "\n===== LIVENESS ANALYSIS =====\n").unwrap();
+
+        let effects = func.block_order.iter().map(|&id| {
+            (id, compute_block_liveness_effects(
+                &func.blocks[&id],
+                w,
+                self.live.remove(&id).unwrap_or_else(HashSet::new)
+            ))
+        }).collect_vec();
+
+        self.recompute_from_effects(effects, cfg, w);
     }
 }
 
