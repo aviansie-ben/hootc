@@ -126,8 +126,8 @@ fn recalculate_rc(code: &mut Vec<Instruction>) {
 
 fn pre_ra_peephole_1(instrs: &mut [Instruction], w: &mut Write) -> bool {
     match instrs {
-        [i0, ..] => match &i0.node {
-            &InstructionKind::IMul(
+        [i0, ..] => match &mut i0.node {
+            &mut InstructionKind::IMul(
                 sz,
                 XDest::Reg(DestRegister(RealRegister::None, Some(src), Some(dst))),
                 XSrc::Imm(imm)
@@ -386,7 +386,22 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 );
 
                 true
-            }
+            },
+            (
+                &mut InstructionKind::Jump(lbl0),
+                &mut InstructionKind::Label(lbl1)
+            ) if lbl0 == lbl1 => {
+                writeln!(w, "Eliminating redundant jump to following label {}", lbl0).unwrap();
+
+                i0.node = InstructionKind::RemovableNop;
+
+                if i1.rc == 1 {
+                    writeln!(w, "  Also eliminating now-unused label {}", lbl0).unwrap();
+                    i1.node = InstructionKind::RemovableNop;
+                };
+
+                true
+            },
             _ => false
         },
         _ => false
@@ -395,7 +410,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
 
 fn pre_ra_peephole_3(instrs: &mut [Instruction], _w: &mut Write) -> bool {
     match instrs {
-        [i0, i1, i2, ..] => match (&i0.node, &i1.node, &i2.node) {
+        [i0, i1, i2, ..] => match (&mut i0.node, &mut i1.node, &mut i2.node) {
             _ => false
         },
         _ => false
@@ -404,23 +419,23 @@ fn pre_ra_peephole_3(instrs: &mut [Instruction], _w: &mut Write) -> bool {
 
 fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
     match instrs {
-        [i0, i1, i2, i3, ..] => match (&i0.node, &i1.node, &i2.node, &i3.node) {
+        [i0, i1, i2, i3, ..] => match (&mut i0.node, &mut i1.node, &mut i2.node, &mut i3.node) {
             (
-                &InstructionKind::SetCondition(
+                &mut InstructionKind::SetCondition(
                     cond,
                     XDest::Reg(DestRegister(RealRegister::None, None, Some(dst0)))
                 ),
-                &InstructionKind::And(
+                &mut InstructionKind::And(
                     RegisterSize::DWord,
                     XDest::Reg(DestRegister(RealRegister::None, Some(src1), Some(dst1))),
                     XSrc::Imm(1)
                 ),
-                &InstructionKind::Test(
+                &mut InstructionKind::Test(
                     RegisterSize::DWord,
                     XSrc::Reg(SrcRegister(RealRegister::None, Some(src2_0))),
                     XSrc::Reg(SrcRegister(RealRegister::None, Some(src2_1)))
                 ),
-                &InstructionKind::JumpConditional(Condition::Equal, label)
+                &mut InstructionKind::JumpConditional(Condition::Equal, label)
             ) if src1 == dst0 && src2_0 == dst1 && src2_1 == dst1
                 && i0.rc == 1 && i1.rc == 2 && i2.rc == 1 => {
                 writeln!(w, "Simplifying setcc/je to {} through {} into jnc", label, dst0).unwrap();
@@ -433,21 +448,21 @@ fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 true
             },
             (
-                &InstructionKind::SetCondition(
+                &mut InstructionKind::SetCondition(
                     cond,
                     XDest::Reg(DestRegister(RealRegister::None, None, Some(dst0)))
                 ),
-                &InstructionKind::And(
+                &mut InstructionKind::And(
                     RegisterSize::DWord,
                     XDest::Reg(DestRegister(RealRegister::None, Some(src1), Some(dst1))),
                     XSrc::Imm(1)
                 ),
-                &InstructionKind::Test(
+                &mut InstructionKind::Test(
                     RegisterSize::DWord,
                     XSrc::Reg(SrcRegister(RealRegister::None, Some(src2_0))),
                     XSrc::Reg(SrcRegister(RealRegister::None, Some(src2_1)))
                 ),
-                &InstructionKind::JumpConditional(Condition::NotEqual, label)
+                &mut InstructionKind::JumpConditional(Condition::NotEqual, label)
             ) if src1 == dst0 && src2_0 == dst1 && src2_1 == dst1
                 && i0.rc == 1 && i1.rc == 2 && i2.rc == 1 => {
                 writeln!(w, "Simplifying setcc/jne to {} through {} into jcc", label, dst0).unwrap();
