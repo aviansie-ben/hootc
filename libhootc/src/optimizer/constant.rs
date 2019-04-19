@@ -243,10 +243,13 @@ pub fn simplify_constant_jump_conditions(
     num_simplified
 }
 
-fn try_simplify_algebraically(
+fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
     id: IlBlockId,
     i: usize,
     instr: &mut IlInstructionKind,
+    reg_alloc: &mut IlRegisterAllocator,
+    reg_map: &mut IlRegisterMap,
+    mut emit_extra: F,
     w: &mut Write
 ) -> bool {
     use crate::il::IlConst::*;
@@ -319,6 +322,70 @@ fn try_simplify_algebraically(
             *instr = IlInstructionKind::ShlI32(tgt, Register(l), Const(I32(bits as i32)));
             true
         },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.wrapping_neg().count_ones() == 1 => {
+            let tmp = reg_alloc.allocate();
+            reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
+            let bits = val.wrapping_neg().trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => -({} << {}) at {}:{}", l, val, l, bits, id, i).unwrap();
+
+            emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
+            *instr = IlInstructionKind::NegI32(tgt, Register(tmp));
+
+            true
+        },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.wrapping_sub(1).count_ones() == 1 => {
+            let tmp = reg_alloc.allocate();
+            reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
+            let bits = val.wrapping_sub(1).trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => ({} << {}) + {} at {}:{}", l, val, l, bits, l, id, i).unwrap();
+
+            emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
+            *instr = IlInstructionKind::AddI32(tgt, Register(tmp), Register(l));
+
+            true
+        },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.wrapping_neg().wrapping_sub(1).count_ones() == 1 => {
+            let tmp1 = reg_alloc.allocate();
+            let tmp2 = reg_alloc.allocate();
+
+            reg_map.add_reg_info(tmp1, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+            reg_map.add_reg_info(tmp2, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
+            let bits = val.wrapping_sub(1).trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => -(({} << {}) + {}) at {}:{}", l, val, l, bits, l, id, i).unwrap();
+
+            emit_extra(IlInstructionKind::ShlI32(tmp1, Register(l), Const(I32(bits as i32))));
+            emit_extra(IlInstructionKind::AddI32(tmp2, Register(tmp1), Register(l)));
+            *instr = IlInstructionKind::NegI32(tgt, Register(tmp2));
+
+            true
+        },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.wrapping_add(1).count_ones() == 1 => {
+            let tmp = reg_alloc.allocate();
+            reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
+            let bits = val.wrapping_add(1).trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => ({} << {}) - {} at {}:{}", l, val, l, bits, l, id, i).unwrap();
+
+            emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
+            *instr = IlInstructionKind::SubI32(tgt, Register(tmp), Register(l));
+
+            true
+        },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.wrapping_neg().wrapping_add(1).count_ones() == 1 => {
+            let tmp = reg_alloc.allocate();
+            reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
+            let bits = val.wrapping_neg().wrapping_add(1).trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => {} - ({} << {}) at {}:{}", l, val, l, bits, l, id, i).unwrap();
+
+            emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
+            *instr = IlInstructionKind::SubI32(tgt, Register(l), Register(tmp));
+
+            true
+        },
         EqI32(tgt, Register(l), Register(r)) if l == r => {
             writeln!(w, "Collapsed {} == {} => 1 at {}:{}", l, l, id, i).unwrap();
             *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));
@@ -348,14 +415,29 @@ pub fn simplify_algebraically(func: &mut IlFunction, w: &mut Write) -> usize {
     writeln!(w, "\n===== ALGEBRAIC SIMPLIFICATION =====\n").unwrap();
 
     let mut num_simplified = 0;
+    let mut to_emit = vec![];
 
     for &id in func.block_order.iter() {
         let block = func.blocks.get_mut(&id).unwrap();
 
         for (i, instr) in block.instrs.iter_mut().enumerate() {
-            if try_simplify_algebraically(id, i, &mut instr.node, w) {
-                num_simplified += 1;
+            let span = instr.span;
+            let mut more_instr = vec![];
+            let emit_extra = |instr| {
+                more_instr.push(IlInstruction::new(instr, span));
             };
+
+            if try_simplify_algebraically(id, i, &mut instr.node, &mut func.reg_alloc, &mut func.reg_map, emit_extra, w) {
+                num_simplified += 1;
+
+                if !more_instr.is_empty() {
+                    to_emit.push((i, more_instr));
+                };
+            };
+        };
+
+        while let Some((i, more_instr)) = to_emit.pop() {
+            block.instrs.splice(i..i, more_instr.into_iter());
         };
     };
 
