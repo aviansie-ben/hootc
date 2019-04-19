@@ -45,4 +45,8 @@ fn main() {
     let mut program = lib::ilgen::generate_il(&module, &mut io::stdout());
 
     lib::optimizer::optimize_program(&mut program, &mut io::stdout());
+
+    for (_, f) in program.funcs {
+        lib::codegen::amd64::gen::generate_code(&f, &mut io::stdout());
+    };
 }

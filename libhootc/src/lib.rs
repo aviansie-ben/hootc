@@ -21,6 +21,7 @@ macro_rules! matches {
 pub mod analysis;
 pub mod ast;
 pub mod bitvec;
+pub mod codegen;
 pub mod il;
 pub mod ilgen;
 pub mod lex;

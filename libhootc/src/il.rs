@@ -472,6 +472,7 @@ impl fmt::Display for IlBlock {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct IlRegisterAllocator {
     next: IlRegister
 }
