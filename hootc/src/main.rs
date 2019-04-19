@@ -47,6 +47,7 @@ fn main() {
     lib::optimizer::optimize_program(&mut program, &mut io::stdout());
 
     for (_, f) in program.funcs {
-        lib::codegen::amd64::gen::generate_code(&f, &mut io::stdout());
+        let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut io::stdout());
+        lib::codegen::amd64::peephole::do_pre_ra_peephole(f.sym, &mut code, &mut io::stdout());
     };
 }
