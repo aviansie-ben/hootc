@@ -313,6 +313,12 @@ fn try_simplify_algebraically(
             *instr = IlInstructionKind::NegI32(tgt, Const(I32(0)));
             true
         },
+        MulI32(tgt, Register(l), Const(I32(val))) if val.count_ones() == 1 => {
+            let bits = val.trailing_zeros();
+            writeln!(w, "Collapsed {} * {} => {} << {} at {}:{}", l, val, l, bits, id, i).unwrap();
+            *instr = IlInstructionKind::ShlI32(tgt, Register(l), Const(I32(bits as i32)));
+            true
+        },
         EqI32(tgt, Register(l), Register(r)) if l == r => {
             writeln!(w, "Collapsed {} == {} => 1 at {}:{}", l, l, id, i).unwrap();
             *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));

@@ -119,6 +119,7 @@ pub enum IlInstructionKind {
     AddI32(IlRegister, IlOperand, IlOperand),
     SubI32(IlRegister, IlOperand, IlOperand),
     MulI32(IlRegister, IlOperand, IlOperand),
+    ShlI32(IlRegister, IlOperand, IlOperand),
     EqI32(IlRegister, IlOperand, IlOperand),
     NeI32(IlRegister, IlOperand, IlOperand),
     PrintI32(IlOperand),
@@ -137,6 +138,7 @@ impl fmt::Display for IlInstructionKind {
             AddI32(ref tgt, ref o1, ref o2) => write!(f, "add.i32 {} {} {}", tgt, o1, o2),
             SubI32(ref tgt, ref o1, ref o2) => write!(f, "sub.i32 {} {} {}", tgt, o1, o2),
             MulI32(ref tgt, ref o1, ref o2) => write!(f, "mul.i32 {} {} {}", tgt, o1, o2),
+            ShlI32(ref tgt, ref o1, ref o2) => write!(f, "shl.i32 {} {} {}", tgt, o1, o2),
             EqI32(ref tgt, ref o1, ref o2) => write!(f, "eq.i32 {} {} {}", tgt, o1, o2),
             NeI32(ref tgt, ref o1, ref o2) => write!(f, "ne.i32 {} {} {}", tgt, o1, o2),
             PrintI32(ref o) => write!(f, "print.i32 {}", o),
@@ -164,6 +166,7 @@ impl IlInstructionKind {
             AddI32(tgt, _, _) => Some(tgt),
             SubI32(tgt, _, _) => Some(tgt),
             MulI32(tgt, _, _) => Some(tgt),
+            ShlI32(tgt, _, _) => Some(tgt),
             EqI32(tgt, _, _) => Some(tgt),
             NeI32(tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
@@ -182,6 +185,7 @@ impl IlInstructionKind {
             AddI32(ref mut tgt, _, _) => Some(tgt),
             SubI32(ref mut tgt, _, _) => Some(tgt),
             MulI32(ref mut tgt, _, _) => Some(tgt),
+            ShlI32(ref mut tgt, _, _) => Some(tgt),
             EqI32(ref mut tgt, _, _) => Some(tgt),
             NeI32(ref mut tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
@@ -214,6 +218,10 @@ impl IlInstructionKind {
                 f(o2);
             },
             MulI32(_, ref o1, ref o2) => {
+                f(o1);
+                f(o2);
+            },
+            ShlI32(_, ref o1, ref o2) => {
                 f(o1);
                 f(o2);
             },
@@ -259,6 +267,10 @@ impl IlInstructionKind {
                 f(o2);
             },
             MulI32(_, ref mut o1, ref mut o2) => {
+                f(o1);
+                f(o2);
+            },
+            ShlI32(_, ref mut o1, ref mut o2) => {
                 f(o1);
                 f(o2);
             },
