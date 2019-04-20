@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::mem;
 
 use itertools::Itertools;
 
 use crate::il::*;
+use crate::log::Log;
 use crate::sym::SymId;
 
 pub struct InlineSite {
@@ -119,8 +119,8 @@ pub fn generate_inline_site(
     }
 }
 
-pub fn do_inlining_decision_phase(prog: &IlProgram, func: &IlFunction, sites: &mut Vec<InlineSite>, w: &mut Write) {
-    writeln!(w, "\n===== INLINING DECISIONS IN FUNCTION {} =====\n", func.sym).unwrap();
+pub fn do_inlining_decision_phase(prog: &IlProgram, func: &IlFunction, sites: &mut Vec<InlineSite>, log: &mut Log) {
+    log_writeln!(log, "\n===== INLINING DECISIONS IN FUNCTION {} =====\n", func.sym);
 
     for &id in func.block_order.iter() {
         let block = &func.blocks[&id];
@@ -143,22 +143,22 @@ pub fn do_inlining_decision_phase(prog: &IlProgram, func: &IlFunction, sites: &m
                 continue;
             };
 
-            writeln!(w, "Will inline call to {} at {}:{}", callee.sym, id, i).unwrap();
+            log_writeln!(log, "Will inline call to {} at {}:{}", callee.sym, id, i);
 
             sites.push(generate_inline_site(callee, (id, i)));
         };
     };
 }
 
-pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<InlineSite>, w: &mut Write) {
+pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<InlineSite>, log: &mut Log) {
     if sites.len() == 0 {
         return;
     };
 
-    writeln!(w, "\n===== INLINING EXPANSION IN FUNCTION {} =====\n", func.sym).unwrap();
+    log_writeln!(log, "\n===== INLINING EXPANSION IN FUNCTION {} =====\n", func.sym);
 
     while let Some(site) = sites.pop() {
-        writeln!(w, "Expanding call to {} at {}:{}", site.sym, site.loc.0, site.loc.1).unwrap();
+        log_writeln!(log, "Expanding call to {} at {}:{}", site.sym, site.loc.0, site.loc.1);
 
         let block_index = func.block_order.iter().enumerate().find_map(|(i, &id)| if id == site.loc.0 {
             Some(i)
@@ -169,12 +169,12 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
         let block = func.blocks.get_mut(&site.loc.0).unwrap();
         let inline_span = block.instrs[site.loc.1].span;
 
-        writeln!(w, "  Inline site span is {}", inline_span).unwrap();
+        log_writeln!(log, "  Inline site span is {}", inline_span);
 
         let next_id = func.next_block_id;
         func.next_block_id.0 += 1;
 
-        writeln!(w, "  Splitting block into {} and {} across call", site.loc.0, next_id).unwrap();
+        log_writeln!(log, "  Splitting block into {} and {} across call", site.loc.0, next_id);
 
         let mut next_block = IlBlock::new();
         let mut split_instrs = block.instrs.drain(site.loc.1..);
@@ -190,7 +190,7 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
         let first_inline_block = func.next_block_id;
         func.next_block_id.0 += site.blocks.len() as u32;
 
-        writeln!(w, "  Will inline in blocks {} through {}", first_inline_block, func.next_block_id).unwrap();
+        log_writeln!(log, "  Will inline in blocks {} through {}", first_inline_block, func.next_block_id);
 
         let first_inline_span = IlSpanId(func.spans.len() as u32);
         for (_, (span, inlined_at)) in site.spans.into_iter() {
@@ -201,12 +201,12 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
             });
         };
 
-        writeln!(w, "  Will inline using spans {} through {}", first_inline_span, IlSpanId(func.spans.len() as u32)).unwrap();
+        log_writeln!(log, "  Will inline using spans {} through {}", first_inline_span, IlSpanId(func.spans.len() as u32));
 
         let num_regs = site.regs.iter().map(|&(IlRegister(r), _)| r).max().map_or(0, |r| r + 1);
         let first_inline_reg = func.reg_alloc.allocate_many(num_regs);
 
-        writeln!(w, "  Will inline using registers {} through {}", first_inline_reg, func.reg_alloc.next()).unwrap();
+        log_writeln!(log, "  Will inline using registers {} through {}", first_inline_reg, func.reg_alloc.next());
 
         for (mut reg, mut reg_info) in site.regs {
             match reg_info.0 {
@@ -279,5 +279,5 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
         });
     };
 
-    writeln!(w, "\n===== AFTER INLINING EXPANSION =====\n\n{}", func).unwrap();
+    log_writeln!(log, "\n===== AFTER INLINING EXPANSION =====\n\n{}", func);
 }

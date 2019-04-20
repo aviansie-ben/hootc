@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::io::Write;
 
 use smallvec::SmallVec;
 
 use crate::bitvec::BitVec;
 use crate::il::{IlFunction, IlInstructionKind, IlOperand, IlRegister};
+use crate::log::Log;
 use super::analysis::AnalysisStructures;
 
 enum Expr {
@@ -87,11 +87,11 @@ impl Expr {
 }
 
 pub fn eliminate_local_common_subexpressions(
-    func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write
+    func: &mut IlFunction, structs: &AnalysisStructures, log: &mut Log
 ) -> usize {
     let ebbs = &structs.ebbs;
 
-    writeln!(w, "\n===== LOCAL COMMON SUBEXPRESSION ELIMINATION =====\n").unwrap();
+    log_writeln!(log, "\n===== LOCAL COMMON SUBEXPRESSION ELIMINATION =====\n");
 
     let mut num_replaced = 0;
     let mut exprs = vec![];
@@ -122,7 +122,7 @@ pub fn eliminate_local_common_subexpressions(
                         for &(ref known_expr, reg) in exprs.iter() {
                             if let Some(ref known_expr) = *known_expr {
                                 if expr.is_equivalent_to(known_expr) {
-                                    writeln!(w, "Replacing calculation at {}:{} with {}", id, i, reg).unwrap();
+                                    log_writeln!(log, "Replacing calculation at {}:{} with {}", id, i, reg);
                                     instr.node = IlInstructionKind::Copy(target, IlOperand::Register(reg));
                                     replaced = true;
                                     num_replaced += 1;
@@ -181,7 +181,7 @@ pub fn eliminate_local_common_subexpressions(
     };
 
     if num_replaced != 0 {
-        writeln!(w, "\n===== AFTER LOCAL COMMON SUBEXPRESSION ELIMINATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER LOCAL COMMON SUBEXPRESSION ELIMINATION =====\n\n{}", func);
     };
 
     num_replaced

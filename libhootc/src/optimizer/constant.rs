@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::io::Write;
 
 use itertools::Itertools;
 use smallvec::SmallVec;
@@ -8,6 +7,7 @@ use smallvec::SmallVec;
 use super::{do_merge_blocks_group, eliminate_dead_stores, eliminate_local_common_subexpressions};
 use super::analysis::{AnalysisStructures, Def};
 use crate::il::*;
+use crate::log::Log;
 
 fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     use crate::il::IlConst::*;
@@ -26,10 +26,10 @@ fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     })
 }
 
-pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write) -> usize {
+pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStructures, log: &mut Log) -> usize {
     let defs = &structs.defs;
 
-    writeln!(w, "\n===== CONSTANT PROPAGATION AND FOLDING =====\n").unwrap();
+    log_writeln!(log, "\n===== CONSTANT PROPAGATION AND FOLDING =====\n");
 
     let mut num_replaced = 0;
     let mut consts = HashMap::new();
@@ -76,7 +76,7 @@ pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStr
         for (i, instr) in block.instrs.iter_mut().enumerate() {
             instr.node.for_operands_mut(|o| if let IlOperand::Register(reg) = *o {
                 if let Some(constant) = consts.get(&reg) {
-                    writeln!(w, "Replaced {} on {}:{} with {}", reg, id, i, constant).unwrap();
+                    log_writeln!(log, "Replaced {} on {}:{} with {}", reg, id, i, constant);
                     *o = IlOperand::Const(constant.clone());
 
                     num_replaced += 1;
@@ -85,7 +85,7 @@ pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStr
 
             if let Some(target) = instr.node.target() {
                 if let Some(fold_constant) = try_fold_instr(&instr.node) {
-                    writeln!(w, "Folded {}:{} to {}", id, i, fold_constant).unwrap();
+                    log_writeln!(log, "Folded {}:{} to {}", id, i, fold_constant);
                     instr.node = IlInstructionKind::Copy(target, IlOperand::Const(fold_constant));
 
                     num_replaced += 1;
@@ -101,7 +101,7 @@ pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStr
 
         block.end_instr.node.for_operands_mut(|o| if let IlOperand::Register(reg) = *o {
             if let Some(constant) = consts.get(&reg) {
-                writeln!(w, "Replaced {} on {}:end with {}", reg, id, constant).unwrap();
+                log_writeln!(log, "Replaced {} on {}:end with {}", reg, id, constant);
                 *o = IlOperand::Const(constant.clone());
 
                 num_replaced += 1;
@@ -110,16 +110,16 @@ pub fn propagate_and_fold_constants(func: &mut IlFunction, structs: &AnalysisStr
     };
 
     if num_replaced != 0 {
-        writeln!(w, "\n===== AFTER CONSTANT FOLDING AND PROPAGATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER CONSTANT FOLDING AND PROPAGATION =====\n\n{}", func);
     };
 
     num_replaced
 }
 
-pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructures, w: &mut Write) -> usize {
+pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructures, log: &mut Log) -> usize {
     let ebbs = &structs.ebbs;
 
-    writeln!(w, "\n===== LOCAL COPY PROPAGATION =====\n").unwrap();
+    log_writeln!(log, "\n===== LOCAL COPY PROPAGATION =====\n");
 
     let mut num_replaced = 0;
     let mut copies = HashMap::new();
@@ -134,7 +134,7 @@ pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructu
             for (i, instr) in block.instrs.iter_mut().enumerate() {
                 instr.node.for_operands_mut(|o| if let IlOperand::Register(reg) = *o {
                     if let Some(copied_reg) = copies.get(&reg).cloned() {
-                        writeln!(w, "Replaced {} on {}:{} with {}", reg, id, i, copied_reg).unwrap();
+                        log_writeln!(log, "Replaced {} on {}:{} with {}", reg, id, i, copied_reg);
                         *o = IlOperand::Register(copied_reg);
 
                         num_replaced += 1;
@@ -171,7 +171,7 @@ pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructu
 
             block.end_instr.node.for_operands_mut(|o| if let IlOperand::Register(reg) = *o {
                 if let Some(copied_reg) = copies.get(&reg).cloned() {
-                    writeln!(w, "Replaced {} on {}:end with {}", reg, id, copied_reg).unwrap();
+                    log_writeln!(log, "Replaced {} on {}:end with {}", reg, id, copied_reg);
                     *o = IlOperand::Register(copied_reg);
 
                     num_replaced += 1;
@@ -181,7 +181,7 @@ pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructu
     };
 
     if num_replaced != 0 {
-        writeln!(w, "\n===== AFTER LOCAL COPY PROPAGATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER LOCAL COPY PROPAGATION =====\n\n{}", func);
     };
 
     num_replaced
@@ -201,11 +201,11 @@ fn calc_constant_jump_condition(instr: &IlEndingInstructionKind) -> Option<bool>
 pub fn simplify_constant_jump_conditions(
     func: &mut IlFunction,
     structs: &mut AnalysisStructures,
-    w: &mut Write
+    log: &mut Log
 ) -> usize {
     let cfg = &mut structs.cfg;
 
-    writeln!(w, "\n===== CONSTANT JUMP SIMPLIFICATION =====\n").unwrap();
+    log_writeln!(log, "\n===== CONSTANT JUMP SIMPLIFICATION =====\n");
 
     let mut num_simplified = 0;
 
@@ -216,7 +216,7 @@ pub fn simplify_constant_jump_conditions(
 
         match calc_constant_jump_condition(&block.end_instr.node) {
             Some(true) => {
-                writeln!(w, "Turning always-taken conditional jump in {} into unconditional jump", id).unwrap();
+                log_writeln!(log, "Turning always-taken conditional jump in {} into unconditional jump", id);
                 cfg.remove_edge(id, func.block_order[i + 1]);
                 block.end_instr.node = IlEndingInstructionKind::Jump(
                     block.end_instr.node.target_block().unwrap()
@@ -225,7 +225,7 @@ pub fn simplify_constant_jump_conditions(
                 num_simplified += 1;
             },
             Some(false) => {
-                writeln!(w, "Removing never-taken conditional jump in {}", id).unwrap();
+                log_writeln!(log, "Removing never-taken conditional jump in {}", id);
                 cfg.remove_edge(id, block.end_instr.node.target_block().unwrap());
                 block.end_instr.node = IlEndingInstructionKind::Nop;
 
@@ -236,8 +236,8 @@ pub fn simplify_constant_jump_conditions(
     };
 
     if num_simplified != 0 {
-        writeln!(w, "\n===== AFTER CONSTANT JUMP SIMPLIFICATION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
-        do_merge_blocks_group(func, cfg, w);
+        log_writeln!(log, "\n===== AFTER CONSTANT JUMP SIMPLIFICATION =====\n\n{}\n{}", func, cfg.pretty(func));
+        do_merge_blocks_group(func, cfg, log);
     };
 
     num_simplified
@@ -250,7 +250,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
     reg_alloc: &mut IlRegisterAllocator,
     reg_map: &mut IlRegisterMap,
     mut emit_extra: F,
-    w: &mut Write
+    log: &mut Log
 ) -> bool {
     use crate::il::IlConst::*;
     use crate::il::IlInstructionKind::*;
@@ -258,27 +258,27 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
 
     let mut updated = match *instr {
         AddI32(tgt, Const(I32(l)), Register(r)) => {
-            writeln!(w, "Moved constant to RHS at {}:{}", id, i).unwrap();
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
             *instr = IlInstructionKind::AddI32(tgt, Register(r), Const(I32(l)));
             true
         },
         SubI32(tgt, Register(l), Const(I32(r))) => {
-            writeln!(w, "Canonicalized immediate subtraction into addition at {}:{}", id, i).unwrap();
+            log_writeln!(log, "Canonicalized immediate subtraction into addition at {}:{}", id, i);
             *instr = IlInstructionKind::AddI32(tgt, Register(l), Const(I32(r.wrapping_neg())));
             true
         },
         MulI32(tgt, Const(I32(l)), Register(r)) => {
-            writeln!(w, "Moved constant to RHS at {}:{}", id, i).unwrap();
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
             *instr = IlInstructionKind::MulI32(tgt, Register(r), Const(I32(l)));
             true
         },
         EqI32(tgt, Const(I32(l)), Register(r)) => {
-            writeln!(w, "Moved constant to RHS at {}:{}", id, i).unwrap();
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
             *instr = IlInstructionKind::EqI32(tgt, Register(r), Const(I32(l)));
             true
         },
         NeI32(tgt, Const(I32(l)), Register(r)) => {
-            writeln!(w, "Moved constant to RHS at {}:{}", id, i).unwrap();
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
             *instr = IlInstructionKind::NeI32(tgt, Register(r), Const(I32(l)));
             true
         },
@@ -287,43 +287,43 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
 
     updated = (match *instr {
         AddI32(tgt, Register(l), Const(I32(0))) => {
-            writeln!(w, "Collapsed {} + 0 => {} at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} + 0 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         SubI32(tgt, Register(l), Const(I32(0))) => {
-            writeln!(w, "Collapsed {} - 0 => {} at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} - 0 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         SubI32(tgt, Const(I32(0)), Register(r)) => {
-            writeln!(w, "Collapsed 0 - {} => -{} at {}:{}", r, r, id, i).unwrap();
+            log_writeln!(log, "Collapsed 0 - {} => -{} at {}:{}", r, r, id, i);
             *instr = IlInstructionKind::NegI32(tgt, Register(r));
             true
         },
         SubI32(tgt, Register(l), Register(r)) if l == r => {
-            writeln!(w, "Collapsed {} - {} => 0 at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} - {} => 0 at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
             true
         },
         MulI32(tgt, Register(l), Const(I32(0))) => {
-            writeln!(w, "Collapsed {} * 0 => 0 at {}:{}", l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * 0 => 0 at {}:{}", l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
             true
         },
         MulI32(tgt, Register(l), Const(I32(1))) => {
-            writeln!(w, "Collapsed {} * 1 => {} at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * 1 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         MulI32(tgt, Register(l), Const(I32(-1))) => {
-            writeln!(w, "Collapsed {} * -1 => -{} at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * -1 => -{} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::NegI32(tgt, Register(l));
             true
         },
         MulI32(tgt, Register(l), Const(I32(val))) if val.count_ones() == 1 => {
             let bits = val.trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => {} << {} at {}:{}", l, val, l, bits, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => {} << {} at {}:{}", l, val, l, bits, id, i);
             *instr = IlInstructionKind::ShlI32(tgt, Register(l), Const(I32(bits as i32)));
             true
         },
@@ -332,7 +332,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
 
             let bits = val.wrapping_neg().trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => -({} << {}) at {}:{}", l, val, l, bits, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => -({} << {}) at {}:{}", l, val, l, bits, id, i);
 
             emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
             *instr = IlInstructionKind::NegI32(tgt, Register(tmp));
@@ -344,7 +344,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
 
             let bits = val.wrapping_sub(1).trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => ({} << {}) + {} at {}:{}", l, val, l, bits, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => ({} << {}) + {} at {}:{}", l, val, l, bits, l, id, i);
 
             emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
             *instr = IlInstructionKind::AddI32(tgt, Register(tmp), Register(l));
@@ -359,7 +359,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             reg_map.add_reg_info(tmp2, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
 
             let bits = val.wrapping_sub(1).trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => -(({} << {}) + {}) at {}:{}", l, val, l, bits, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => -(({} << {}) + {}) at {}:{}", l, val, l, bits, l, id, i);
 
             emit_extra(IlInstructionKind::ShlI32(tmp1, Register(l), Const(I32(bits as i32))));
             emit_extra(IlInstructionKind::AddI32(tmp2, Register(tmp1), Register(l)));
@@ -372,7 +372,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
 
             let bits = val.wrapping_add(1).trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => ({} << {}) - {} at {}:{}", l, val, l, bits, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => ({} << {}) - {} at {}:{}", l, val, l, bits, l, id, i);
 
             emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
             *instr = IlInstructionKind::SubI32(tgt, Register(tmp), Register(l));
@@ -384,7 +384,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             reg_map.add_reg_info(tmp, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
 
             let bits = val.wrapping_neg().wrapping_add(1).trailing_zeros();
-            writeln!(w, "Collapsed {} * {} => {} - ({} << {}) at {}:{}", l, val, l, bits, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} * {} => {} - ({} << {}) at {}:{}", l, val, l, bits, l, id, i);
 
             emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
             *instr = IlInstructionKind::SubI32(tgt, Register(l), Register(tmp));
@@ -392,12 +392,12 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             true
         },
         EqI32(tgt, Register(l), Register(r)) if l == r => {
-            writeln!(w, "Collapsed {} == {} => 1 at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} == {} => 1 at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));
             true
         },
         NeI32(tgt, Register(l), Register(r)) if l == r => {
-            writeln!(w, "Collapsed {} != {} => 0 at {}:{}", l, l, id, i).unwrap();
+            log_writeln!(log, "Collapsed {} != {} => 0 at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
             true
         },
@@ -406,7 +406,7 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
 
     updated = (match *instr {
         Copy(tgt, Register(src)) if tgt == src => {
-            writeln!(w, "Eliminated redundant copy from {} to {} at {}:{}", src, src, id, i).unwrap();
+            log_writeln!(log, "Eliminated redundant copy from {} to {} at {}:{}", src, src, id, i);
             *instr = IlInstructionKind::Nop;
             true
         },
@@ -416,8 +416,8 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
     updated
 }
 
-pub fn simplify_algebraically(func: &mut IlFunction, w: &mut Write) -> usize {
-    writeln!(w, "\n===== ALGEBRAIC SIMPLIFICATION =====\n").unwrap();
+pub fn simplify_algebraically(func: &mut IlFunction, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== ALGEBRAIC SIMPLIFICATION =====\n");
 
     let mut num_simplified = 0;
     let mut to_emit = vec![];
@@ -432,7 +432,7 @@ pub fn simplify_algebraically(func: &mut IlFunction, w: &mut Write) -> usize {
                 more_instr.push(IlInstruction::new(instr, span));
             };
 
-            if try_simplify_algebraically(id, i, &mut instr.node, &mut func.reg_alloc, &mut func.reg_map, emit_extra, w) {
+            if try_simplify_algebraically(id, i, &mut instr.node, &mut func.reg_alloc, &mut func.reg_map, emit_extra, log) {
                 num_simplified += 1;
 
                 if !more_instr.is_empty() {
@@ -447,7 +447,7 @@ pub fn simplify_algebraically(func: &mut IlFunction, w: &mut Write) -> usize {
     };
 
     if num_simplified != 0 {
-        writeln!(w, "\n===== AFTER ALGEBRAIC SIMPLIFICATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER ALGEBRAIC SIMPLIFICATION =====\n\n{}", func);
     };
 
     num_simplified
@@ -457,7 +457,7 @@ fn try_simplify_jump_condition(
     block: IlBlockId,
     cmp_ins: &IlInstructionKind,
     jmp_ins: &mut IlEndingInstructionKind,
-    w: &mut Write
+    log: &mut Log
 ) -> bool {
     let (reverse, target, reg) = match *jmp_ins {
         IlEndingInstructionKind::JumpNonZero(target, IlOperand::Register(reg)) => (false, target, reg),
@@ -471,10 +471,10 @@ fn try_simplify_jump_condition(
         IlInstructionKind::EqI32(cmp_reg, ref lhs, IlOperand::Const(IlConst::I32(0)))
             if cmp_reg == reg && lhs != &IlOperand::Register(reg) => {
             if reverse {
-                writeln!(w, "{}: Replacing (i32 == 0) followed by jz with jnz", block).unwrap();
+                log_writeln!(log, "{}: Replacing (i32 == 0) followed by jz with jnz", block);
                 *jmp_ins = IlEndingInstructionKind::JumpNonZero(target, lhs.clone());
             } else {
-                writeln!(w, "{}: Replacing (i32 == 0) followed by jnz with jz", block).unwrap();
+                log_writeln!(log, "{}: Replacing (i32 == 0) followed by jnz with jz", block);
                 *jmp_ins = IlEndingInstructionKind::JumpZero(target, lhs.clone());
             };
             true
@@ -482,10 +482,10 @@ fn try_simplify_jump_condition(
         IlInstructionKind::NeI32(cmp_reg, ref lhs, IlOperand::Const(IlConst::I32(0)))
             if cmp_reg == reg && lhs != &IlOperand::Register(reg) => {
             if reverse {
-                writeln!(w, "{}: Replacing (i32 != 0) followed by jz with jz", block).unwrap();
+                log_writeln!(log, "{}: Replacing (i32 != 0) followed by jz with jz", block);
                 *jmp_ins = IlEndingInstructionKind::JumpZero(target, lhs.clone());
             } else {
-                writeln!(w, "{}: Replacing (i32 != 0) followed by jnz with jnz", block).unwrap();
+                log_writeln!(log, "{}: Replacing (i32 != 0) followed by jnz with jnz", block);
                 *jmp_ins = IlEndingInstructionKind::JumpNonZero(target, lhs.clone());
             };
             true
@@ -494,8 +494,8 @@ fn try_simplify_jump_condition(
     }
 }
 
-pub fn simplify_jump_conditions(func: &mut IlFunction, w: &mut Write) -> usize {
-    writeln!(w, "\n===== JUMP CONDITION SIMPLIFICATION =====\n").unwrap();
+pub fn simplify_jump_conditions(func: &mut IlFunction, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== JUMP CONDITION SIMPLIFICATION =====\n");
 
     let mut num_simplified = 0;
 
@@ -503,22 +503,22 @@ pub fn simplify_jump_conditions(func: &mut IlFunction, w: &mut Write) -> usize {
         let block = func.blocks.get_mut(&id).unwrap();
 
         if !block.instrs.is_empty()
-            && try_simplify_jump_condition(id, &block.instrs.last().unwrap().node, &mut block.end_instr.node, w) {
+            && try_simplify_jump_condition(id, &block.instrs.last().unwrap().node, &mut block.end_instr.node, log) {
             num_simplified += 1;
         };
     };
 
     if num_simplified != 0 {
-        writeln!(w, "\n===== AFTER JUMP CONDITION SIMPLIFICATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER JUMP CONDITION SIMPLIFICATION =====\n\n{}", func);
     };
 
     num_simplified
 }
 
-pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructures, w: &mut Write) -> usize {
+pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructures, log: &mut Log) -> usize {
     let cfg = &mut structs.cfg;
 
-    writeln!(w, "\n===== TAIL CALL ELIMINATION =====\n").unwrap();
+    log_writeln!(log, "\n===== TAIL CALL ELIMINATION =====\n");
 
     let mut num_eliminated = 0;
     let start_block = func.block_order.first().cloned().unwrap();
@@ -545,7 +545,7 @@ pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructu
             continue;
         };
 
-        writeln!(w, "Turning tail call to self in {} into a jump to {}", id, start_block).unwrap();
+        log_writeln!(log, "Turning tail call to self in {} into a jump to {}", id, start_block);
 
         let params = params.clone();
         let first_param_temp = func.reg_alloc.allocate_many(params.len() as u32);
@@ -580,7 +580,7 @@ pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructu
     };
 
     if num_eliminated != 0 {
-        writeln!(w, "\n===== AFTER TAIL CALL ELIMINATION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+        log_writeln!(log, "\n===== AFTER TAIL CALL ELIMINATION =====\n\n{}\n{}", func, cfg.pretty(func));
     };
 
     num_eliminated
@@ -589,46 +589,46 @@ pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructu
 pub fn do_constant_fold_group(
     func: &mut IlFunction,
     structs: &mut AnalysisStructures,
-    w: &mut Write
+    log: &mut Log
 ) -> bool {
-    structs.ebbs.recompute(func, &structs.cfg, w);
-    propagate_copies_locally(func, structs, w);
+    structs.ebbs.recompute(func, &structs.cfg, log);
+    propagate_copies_locally(func, structs, log);
 
-    structs.liveness.recompute_global_regs(func, w);
-    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
-    let mut cont = propagate_and_fold_constants(func, structs, w) != 0;
+    structs.liveness.recompute_global_regs(func, log);
+    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), log);
+    let mut cont = propagate_and_fold_constants(func, structs, log) != 0;
 
-    cont = eliminate_local_common_subexpressions(func, structs, w) != 0 || cont;
+    cont = eliminate_local_common_subexpressions(func, structs, log) != 0 || cont;
 
-    structs.liveness.recompute(func, &structs.cfg, w);
-    cont = eliminate_dead_stores(func, &mut structs.liveness, w) != 0 || cont;
+    structs.liveness.recompute(func, &structs.cfg, log);
+    cont = eliminate_dead_stores(func, &mut structs.liveness, log) != 0 || cont;
 
-    cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
-    cont = simplify_algebraically(func, w) != 0 || cont;
-    cont = simplify_jump_conditions(func, w) != 0 || cont;
-    cont = eliminate_tail_calls(func, structs, w) != 0 || cont;
+    cont = simplify_constant_jump_conditions(func, structs, log) != 0 || cont;
+    cont = simplify_algebraically(func, log) != 0 || cont;
+    cont = simplify_jump_conditions(func, log) != 0 || cont;
+    cont = eliminate_tail_calls(func, structs, log) != 0 || cont;
 
     if !cont {
         return false;
     };
 
     while cont {
-        structs.ebbs.recompute(func, &structs.cfg, w);
-        propagate_copies_locally(func, structs, w);
+        structs.ebbs.recompute(func, &structs.cfg, log);
+        propagate_copies_locally(func, structs, log);
 
-        structs.liveness.recompute_global_regs(func, w);
-        structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
-        cont = propagate_and_fold_constants(func, structs, w) != 0;
+        structs.liveness.recompute_global_regs(func, log);
+        structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), log);
+        cont = propagate_and_fold_constants(func, structs, log) != 0;
 
-        cont = eliminate_local_common_subexpressions(func, structs, w) != 0 || cont;
+        cont = eliminate_local_common_subexpressions(func, structs, log) != 0 || cont;
 
-        structs.liveness.recompute(func, &structs.cfg, w);
-        cont = eliminate_dead_stores(func, &mut structs.liveness, w) != 0 || cont;
+        structs.liveness.recompute(func, &structs.cfg, log);
+        cont = eliminate_dead_stores(func, &mut structs.liveness, log) != 0 || cont;
 
-        cont = simplify_constant_jump_conditions(func, structs, w) != 0 || cont;
-        cont = simplify_algebraically(func, w) != 0 || cont;
-        cont = simplify_jump_conditions(func, w) != 0 || cont;
-        cont = eliminate_tail_calls(func, structs, w) != 0 || cont;
+        cont = simplify_constant_jump_conditions(func, structs, log) != 0 || cont;
+        cont = simplify_algebraically(func, log) != 0 || cont;
+        cont = simplify_jump_conditions(func, log) != 0 || cont;
+        cont = eliminate_tail_calls(func, structs, log) != 0 || cont;
     };
     true
 }

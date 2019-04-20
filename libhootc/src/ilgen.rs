@@ -1,12 +1,11 @@
-use std::io::Write;
 use std::mem;
 
 use itertools::Itertools;
 
 use super::ast;
-use super::lex::Span;
 use super::il::*;
-use super::sharedio::SharedWrite;
+use super::lex::Span;
+use super::log::{Log, SharedLog};
 use super::sym::{FunctionId, SymDef, SymDefKind, SymDefTable, SymId};
 use super::types::{Type, TypeId, TypeTable};
 
@@ -28,11 +27,11 @@ pub fn map_to_il_type(ty: TypeId, types: &TypeTable) -> IlType {
 pub struct IlBuilder<'a> {
     pub current_block: IlBlock,
     pub func: IlFunction,
-    log: SharedWrite<'a, dyn Write>
+    log: SharedLog<'a>
 }
 
 impl <'a> IlBuilder<'a> {
-    pub fn new(sym: SymId, log: SharedWrite<dyn Write>) -> IlBuilder {
+    pub fn new(sym: SymId, log: SharedLog) -> IlBuilder {
         IlBuilder {
             current_block: IlBlock::new(),
             func: IlFunction::new(sym),
@@ -61,7 +60,7 @@ impl <'a> IlBuilder<'a> {
         } else {
             let reg = self.allocate_register();
 
-            writeln!(self.log, "Allocated {} for symbol {}", reg, sym).unwrap();
+            log_writeln!(self.log, "Allocated {} for symbol {}", reg, sym);
 
             self.func.reg_map.add_sym_reg(sym, reg);
             self.func.reg_map.add_reg_info(reg, match *syms.find(sym) {
@@ -113,7 +112,7 @@ struct IlGenContext<'a> {
     func: SymId,
     types: &'a TypeTable,
     syms: &'a SymDefTable,
-    log: SharedWrite<'a, dyn Write>
+    log: SharedLog<'a>
 }
 
 fn generate_direct_call_il<'a>(
@@ -333,7 +332,7 @@ fn generate_direct_call_il<'a>(
 fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx: &mut IlGenContext) -> IlRegister {
     use ast::ExprKind::*;
 
-    writeln!(ctx.log, "{} <= {} <- {}", b.next_block_id(), tgt, e.pretty(ctx.types, 2)).unwrap();
+    log_writeln!(ctx.log, "{} <= {} <- {}", b.next_block_id(), tgt, e.pretty(ctx.types, 2));
 
     match e.node {
         Call(box ref func, ref args) => {
@@ -483,7 +482,7 @@ fn generate_expression_pre_store(e: &ast::Expr, b: &mut IlBuilder, ctx: &mut IlG
 fn generate_expression_store(e: &ast::Expr, reg: IlRegister, b: &mut IlBuilder, ctx: &mut IlGenContext) {
     use ast::ExprKind::*;
 
-    writeln!(ctx.log, "{} <= {} -> {}", b.next_block_id(), reg, e.pretty(ctx.types, 2)).unwrap();
+    log_writeln!(ctx.log, "{} <= {} -> {}", b.next_block_id(), reg, e.pretty(ctx.types, 2));
 
     match e.node {
         Id(ref id) => {
@@ -496,7 +495,7 @@ fn generate_expression_store(e: &ast::Expr, reg: IlRegister, b: &mut IlBuilder, 
 fn generate_statement_il(s: &ast::Stmt, b: &mut IlBuilder, ctx: &mut IlGenContext) {
     use ast::StmtKind::*;
 
-    writeln!(ctx.log, "{} <= {}", b.next_block_id(), s.pretty(ctx.types, 2)).unwrap();
+    log_writeln!(ctx.log, "{} <= {}", b.next_block_id(), s.pretty(ctx.types, 2));
 
     match s.node {
         Let(ref id, _, ref val) => {
@@ -527,7 +526,7 @@ fn generate_block_il(block: &ast::Block, tgt: IlRegister, b: &mut IlBuilder, ctx
     };
 
     if let Some(ref result) = block.result {
-        writeln!(ctx.log, "{} <= {} <- {}", b.next_block_id(), tgt, result.pretty(ctx.types, 2)).unwrap();
+        log_writeln!(ctx.log, "{} <= {} <- {}", b.next_block_id(), tgt, result.pretty(ctx.types, 2));
         generate_expression_il(result, tgt, b, ctx);
     };
 
@@ -540,7 +539,7 @@ fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction
 
     ctx.func = sym;
 
-    writeln!(ctx.log, "===== GENERATING IL FOR FUNCTION {} =====\n", ctx.func).unwrap();
+    log_writeln!(ctx.log, "===== GENERATING IL FOR FUNCTION {} =====\n", ctx.func);
 
     let param_regs = f.sig.params.iter().map(|&(ref id, _)| {
         b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types)
@@ -556,7 +555,7 @@ fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction
         ctx
     );
 
-    writeln!(ctx.log, "{} <= implicit return of {}", b.next_block_id(), result_reg).unwrap();
+    log_writeln!(ctx.log, "{} <= implicit return of {}", b.next_block_id(), result_reg);
     b.append_ending_instruction(
         IlEndingInstructionKind::Return(IlOperand::Register(result_reg)),
         f.body.result.as_ref().map_or_else(Span::dummy, |r| r.span)
@@ -564,21 +563,21 @@ fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction
 
     let f = b.finish();
 
-    writeln!(ctx.log, "\n===== GENERATED IL =====\n\n{}\n{}", f, f.spans).unwrap();
+    log_writeln!(ctx.log, "\n===== GENERATED IL =====\n\n{}\n{}", f, f.spans);
 
     f
 }
 
-pub fn generate_il(m: &ast::Module, log: &mut Write) -> IlProgram {
+pub fn generate_il(m: &ast::Module, log: &mut Log) -> IlProgram {
     let mut ctx = IlGenContext {
         func: SymId(0),
         types: &m.types,
         syms: &m.syms,
-        log: SharedWrite::new(log)
+        log: log.share()
     };
     let mut program = IlProgram::new();
 
-    writeln!(ctx.log, "===== IL GENERATION =====\n").unwrap();
+    log_writeln!(ctx.log, "===== IL GENERATION =====\n");
 
     for f in m.funcs.iter() {
         program.funcs.insert(

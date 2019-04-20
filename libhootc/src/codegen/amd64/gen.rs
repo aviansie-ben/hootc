@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::io::Write;
 
 use super::instr::*;
 use crate::codegen::label::{Label, LabelAlloc};
 use crate::il::*;
+use crate::log::Log;
 
 struct CodeGenContext {
     code: Vec<Instruction>,
@@ -49,13 +49,13 @@ fn generate_load_for_operand_into(o: &IlOperand, tgt: RealRegister, ctx: &mut Co
     ));
 }
 
-fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, w: &mut Write) {
+fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log: &mut Log) {
     use crate::il::IlInstructionKind::*;
 
     let old_len = ctx.code.len();
     let span = instr.span;
 
-    writeln!(w, "; {}", instr).unwrap();
+    log_writeln!(log, "; {}", instr);
 
     match instr.node {
         Nop => {},
@@ -268,19 +268,19 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, w: &
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        writeln!(w, "{}", instr_out.node).unwrap();
+        log_writeln!(log, "{}", instr_out.node);
     };
 
-    writeln!(w).unwrap();
+    log_writeln!(log);
 }
 
-fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenContext, w: &mut Write) {
+fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenContext, log: &mut Log) {
     use crate::il::IlEndingInstructionKind::*;
 
     let old_len = ctx.code.len();
     let span = instr.span;
 
-    writeln!(w, "; {}", instr).unwrap();
+    log_writeln!(log, "; {}", instr);
 
     match instr.node {
         Nop => {},
@@ -343,29 +343,29 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        writeln!(w, "{}", instr_out.node).unwrap();
+        log_writeln!(log, "{}", instr_out.node);
     };
 
-    writeln!(w).unwrap();
+    log_writeln!(log);
 }
 
-fn generate_code_for_block(block: &IlBlock, ctx: &mut CodeGenContext, w: &mut Write) {
+fn generate_code_for_block(block: &IlBlock, ctx: &mut CodeGenContext, log: &mut Log) {
     ctx.code.push(Instruction::new(
         InstructionKind::Label(ctx.block_labels[&block.id]),
         IlSpanId::dummy()
     ));
 
-    writeln!(w, "; Block {}", block.id).unwrap();
-    writeln!(w, "{}\n", ctx.code.last().unwrap().node).unwrap();
+    log_writeln!(log, "; Block {}", block.id);
+    log_writeln!(log, "{}\n", ctx.code.last().unwrap().node);
 
     for instr in block.instrs.iter() {
-        generate_code_for_instr(instr, ctx, w);
+        generate_code_for_instr(instr, ctx, log);
     };
-    generate_code_for_end_instr(&block.end_instr, ctx, w);
+    generate_code_for_end_instr(&block.end_instr, ctx, log);
 }
 
-pub fn generate_code(func: &IlFunction, w: &mut Write) -> Vec<Instruction> {
-    writeln!(w, "\n===== INSTRUCTION SELECTION FOR {} =====\n", func.sym).unwrap();
+pub fn generate_code(func: &IlFunction, log: &mut Log) -> Vec<Instruction> {
+    log_writeln!(log, "\n===== INSTRUCTION SELECTION FOR {} =====\n", func.sym);
 
     let mut labels = LabelAlloc::new();
     let block_labels: HashMap<_, _> = func.block_order.iter().map(|&id| {
@@ -380,7 +380,7 @@ pub fn generate_code(func: &IlFunction, w: &mut Write) -> Vec<Instruction> {
     };
 
     for &id in func.block_order.iter() {
-        generate_code_for_block(&func.blocks[&id], &mut ctx, w);
+        generate_code_for_block(&func.blocks[&id], &mut ctx, log);
     };
 
     ctx.code.push(Instruction::new(InstructionKind::Label(end_label), IlSpanId::dummy()));

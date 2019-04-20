@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
-use std::io::Write;
 
 use super::analysis::LivenessGraph;
 use super::flow_graph::FlowGraph;
 use crate::bitvec::BitVec;
 use crate::il::{IlBlockId, IlFunction, IlInstructionKind, IlOperand};
+use crate::log::Log;
 
-pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== DEAD BLOCK ELIMINATION =====\n").unwrap();
+pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== DEAD BLOCK ELIMINATION =====\n");
 
     let mut reachable = BitVec::new();
     let mut worklist = VecDeque::new();
@@ -26,7 +26,7 @@ pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockI
     let blocks = &mut func.blocks;
     let num_eliminated = func.block_order.drain_filter(|&mut id| {
         if !reachable.get(id) {
-            writeln!(w, "Eliminating dead block {}", id).unwrap();
+            log_writeln!(log, "Eliminating dead block {}", id);
 
             blocks.remove(&id);
             if cfg.get(id).returns {
@@ -46,14 +46,14 @@ pub fn eliminate_dead_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockI
     }).count();
 
     if num_eliminated != 0 {
-        writeln!(w, "\n===== AFTER DEAD BLOCK ELIMINATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER DEAD BLOCK ELIMINATION =====\n\n{}", func);
     };
 
     num_eliminated
 }
 
-pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== DEAD STORE ELIMINATION =====\n").unwrap();
+pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== DEAD STORE ELIMINATION =====\n");
 
     let mut num_eliminated = 0;
 
@@ -68,7 +68,7 @@ pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph
         for instr in block.instrs.iter_mut().rev() {
             if let Some(target) = instr.node.target() {
                 if !live_regs.remove(&target) && instr.node.can_dead_store_eliminate() {
-                    writeln!(w, "Removing dead store to {} in {}", target, id).unwrap();
+                    log_writeln!(log, "Removing dead store to {} in {}", target, id);
 
                     instr.node = IlInstructionKind::Nop;
                 };
@@ -83,7 +83,7 @@ pub fn eliminate_dead_stores(func: &mut IlFunction, liveness: &mut LivenessGraph
     };
 
     if num_eliminated != 0 {
-        writeln!(w, "\n===== AFTER DEAD STORE ELIMINATION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER DEAD STORE ELIMINATION =====\n\n{}", func);
     };
 
     num_eliminated

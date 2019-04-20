@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::io::Write;
 
 use super::instr::*;
 use crate::bitvec::BitVec;
 use crate::codegen::label::Label;
 use crate::il::IlRegister;
+use crate::log::Log;
 use crate::sym::SymId;
 
 fn for_used_labels<F: FnMut (Label) -> ()>(instr: &InstructionKind, mut f: F) {
@@ -20,7 +20,7 @@ fn for_used_labels<F: FnMut (Label) -> ()>(instr: &InstructionKind, mut f: F) {
     };
 }
 
-fn remove_unused_labels(code: &mut Vec<Instruction>, w: &mut Write) {
+fn remove_unused_labels(code: &mut Vec<Instruction>, log: &mut Log) {
     let mut label_rc = HashMap::new();
 
     for instr in code.iter() {
@@ -43,7 +43,7 @@ fn remove_unused_labels(code: &mut Vec<Instruction>, w: &mut Write) {
                     instr.rc = rc;
                     false
                 } else {
-                    writeln!(w, "Removing unused label {}", label).unwrap();
+                    log_writeln!(log, "Removing unused label {}", label);
                     true
                 }
             },
@@ -124,7 +124,7 @@ fn recalculate_rc(code: &mut Vec<Instruction>) {
     };
 }
 
-fn pre_ra_peephole_1(instrs: &mut [Instruction], w: &mut Write) -> bool {
+fn pre_ra_peephole_1(instrs: &mut [Instruction], log: &mut Log) -> bool {
     match instrs {
         [i0, ..] => match &mut i0.node {
             &mut InstructionKind::IMul(
@@ -133,7 +133,7 @@ fn pre_ra_peephole_1(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 XSrc::Imm(imm)
             ) => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Turning IMUL {} = {} * {} into IMULI", dst, src, imm).unwrap();
+                log_writeln!(log, "Turning IMUL {} = {} * {} into IMULI", dst, src, imm);
 
                 i0.node = InstructionKind::IMulI(
                     sz,
@@ -156,7 +156,7 @@ fn can_add(imm: i64, shift: u8, disp: i32) -> bool {
     (((imm as i32) << shift) >> shift) == imm as i32 && disp.checked_add((imm as i32) << shift).is_some()
 }
 
-fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
+fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
     match instrs {
         [i0, i1, ..] => match (&mut i0.node, &mut i1.node) {
             (
@@ -173,7 +173,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
             ) if src1 == dst0 && (sz0 == RegisterSize::QWord || sz0 == RegisterSize::DWord)
                 && sz0 == sz1 && i0.rc == 1 => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Turning {} = {} + {} + {} into an LEA", dst1, src0_0, src0_1, imm).unwrap();
+                log_writeln!(log, "Turning {} = {} + {} + {} into an LEA", dst1, src0_0, src0_1, imm);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -208,7 +208,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 };
 
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Turning {} = {} + {} + {} into an LEA", dst1, src0, imm, src1).unwrap();
+                log_writeln!(log, "Turning {} = {} + {} + {} into an LEA", dst1, src0, imm, src1);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -238,7 +238,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 && dst0 == src1 && shift <= MemArg::max_scale_shift()
                 && i0.rc == 1 => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Turning {} = ({} << {}) + {} into an LEA", dst1, src0, shift, imm).unwrap();
+                log_writeln!(log, "Turning {} = ({} << {}) + {} into an LEA", dst1, src0, shift, imm);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -274,7 +274,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                     src1_0
                 };
 
-                writeln!(w, "Turning {} = ({} << {}) + {} into an LEA", dst1, src0, shift, src1).unwrap();
+                log_writeln!(log, "Turning {} = ({} << {}) + {} into an LEA", dst1, src0, shift, src1);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -303,7 +303,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 )
             ) if sz0 == sz1 && dst0 == src1 && can_add(imm, 0, displacement) && i0.rc == 1 => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Merging {} = {} + {} into previous LEA", dst1, src1, imm).unwrap();
+                log_writeln!(log, "Merging {} = {} + {} into previous LEA", dst1, src1, imm);
 
                 i0.node = InstructionKind::LoadEffectiveAddress(
                     sz0,
@@ -337,7 +337,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 )
             ) if sz0 == sz1 && src1 == dst0 && can_add(imm, 1, displacement) && i0.rc == 1 => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Merging {} = {} + {} into next LEA with base {}", dst0, src0, imm, dst0).unwrap();
+                log_writeln!(log, "Merging {} = {} + {} into next LEA with base {}", dst0, src0, imm, dst0);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -371,7 +371,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 )
             ) if sz0 == sz1 && src1 == dst0 && can_add(imm, scale.trailing_zeros() as u8, displacement) && i0.rc == 1 => {
                 assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-                writeln!(w, "Merging {} = {} + {} into next LEA with index {} * {}", dst0, src0, imm, dst0, scale).unwrap();
+                log_writeln!(log, "Merging {} = {} + {} into next LEA with index {} * {}", dst0, src0, imm, dst0, scale);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::LoadEffectiveAddress(
@@ -391,12 +391,12 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 &mut InstructionKind::Jump(lbl0),
                 &mut InstructionKind::Label(lbl1)
             ) if lbl0 == lbl1 => {
-                writeln!(w, "Eliminating redundant jump to following label {}", lbl0).unwrap();
+                log_writeln!(log, "Eliminating redundant jump to following label {}", lbl0);
 
                 i0.node = InstructionKind::RemovableNop;
 
                 if i1.rc == 1 {
-                    writeln!(w, "  Also eliminating now-unused label {}", lbl0).unwrap();
+                    log_writeln!(log, "  Also eliminating now-unused label {}", lbl0);
                     i1.node = InstructionKind::RemovableNop;
                 };
 
@@ -408,7 +408,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], w: &mut Write) -> bool {
     }
 }
 
-fn pre_ra_peephole_3(instrs: &mut [Instruction], _w: &mut Write) -> bool {
+fn pre_ra_peephole_3(instrs: &mut [Instruction], _log: &mut Log) -> bool {
     match instrs {
         [i0, i1, i2, ..] => match (&mut i0.node, &mut i1.node, &mut i2.node) {
             _ => false
@@ -417,7 +417,7 @@ fn pre_ra_peephole_3(instrs: &mut [Instruction], _w: &mut Write) -> bool {
     }
 }
 
-fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
+fn pre_ra_peephole_4(instrs: &mut [Instruction], log: &mut Log) -> bool {
     match instrs {
         [i0, i1, i2, i3, ..] => match (&mut i0.node, &mut i1.node, &mut i2.node, &mut i3.node) {
             (
@@ -438,7 +438,7 @@ fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 &mut InstructionKind::JumpConditional(Condition::Equal, label)
             ) if src1 == dst0 && src2_0 == dst1 && src2_1 == dst1
                 && i0.rc == 1 && i1.rc == 2 && i2.rc == 1 => {
-                writeln!(w, "Simplifying setcc/je to {} through {} into jnc", label, dst0).unwrap();
+                log_writeln!(log, "Simplifying setcc/je to {} through {} into jnc", label, dst0);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::RemovableNop;
@@ -465,7 +465,7 @@ fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
                 &mut InstructionKind::JumpConditional(Condition::NotEqual, label)
             ) if src1 == dst0 && src2_0 == dst1 && src2_1 == dst1
                 && i0.rc == 1 && i1.rc == 2 && i2.rc == 1 => {
-                writeln!(w, "Simplifying setcc/jne to {} through {} into jcc", label, dst0).unwrap();
+                log_writeln!(log, "Simplifying setcc/jne to {} through {} into jcc", label, dst0);
 
                 i0.node = InstructionKind::RemovableNop;
                 i1.node = InstructionKind::RemovableNop;
@@ -480,11 +480,11 @@ fn pre_ra_peephole_4(instrs: &mut [Instruction], w: &mut Write) -> bool {
     }
 }
 
-pub fn do_pre_ra_peephole(func: SymId, code: &mut Vec<Instruction>, w: &mut Write) {
-    writeln!(w, "\n===== PRE REGISTER ALLOCATION PEEPHOLES ON {} =====\n", func).unwrap();
+pub fn do_pre_ra_peephole(func: SymId, code: &mut Vec<Instruction>, log: &mut Log) {
+    log_writeln!(log, "\n===== PRE REGISTER ALLOCATION PEEPHOLES ON {} =====\n", func);
 
     loop {
-        remove_unused_labels(code, w);
+        remove_unused_labels(code, log);
         recalculate_rc(code);
 
         let mut changed = false;
@@ -492,10 +492,10 @@ pub fn do_pre_ra_peephole(func: SymId, code: &mut Vec<Instruction>, w: &mut Writ
         for i in 0..code.len() {
             let code = &mut code[i..];
 
-            changed = pre_ra_peephole_4(code, w) || changed;
-            changed = pre_ra_peephole_3(code, w) || changed;
-            changed = pre_ra_peephole_2(code, w) || changed;
-            changed = pre_ra_peephole_1(code, w) || changed;
+            changed = pre_ra_peephole_4(code, log) || changed;
+            changed = pre_ra_peephole_3(code, log) || changed;
+            changed = pre_ra_peephole_2(code, log) || changed;
+            changed = pre_ra_peephole_1(code, log) || changed;
         };
 
         if !changed {

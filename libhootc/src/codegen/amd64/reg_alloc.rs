@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::Entry;
-use std::io::Write;
 use std::mem;
 
 use itertools::Itertools;
@@ -8,6 +7,7 @@ use itertools::Itertools;
 use crate::codegen::label::Label;
 use crate::codegen::reg_alloc::RegisterAllocatorBase;
 use crate::il::{IlRegister, IlRegisterAllocator, IlSpanId, IlType};
+use crate::log::Log;
 use crate::optimizer::analysis::{BlockLivenessInfo, LivenessGraph};
 use crate::optimizer::flow_graph::FlowGraph;
 use crate::sym::SymId;
@@ -156,14 +156,14 @@ fn compute_liveness_effects(block: &Vec<Instruction>) -> BlockLivenessInfo {
     BlockLivenessInfo::new(gen, kill)
 }
 
-fn compute_liveness(blocks: &Vec<(Label, Vec<Instruction>)>, cfg: &FlowGraph<Label>, w: &mut Write) -> LivenessGraph<Label> {
+fn compute_liveness(blocks: &Vec<(Label, Vec<Instruction>)>, cfg: &FlowGraph<Label>, log: &mut Log) -> LivenessGraph<Label> {
     let mut liveness = LivenessGraph::new();
     let effects = blocks.iter().map(|&(label, ref instrs)| {
         (label, compute_liveness_effects(instrs))
     }).collect_vec();
 
-    liveness.recompute_from_effects(effects, cfg, w);
-    writeln!(w).unwrap();
+    liveness.recompute_from_effects(effects, cfg, log);
+    log_writeln!(log);
     liveness
 }
 
@@ -199,9 +199,9 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         real: RealRegister,
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
-        w: &mut Write
+        log: &mut Log
     ) {
-        writeln!(w, "  Spilling {} (from {})", virt, real.name_qword()).unwrap();
+        log_writeln!(log, "  Spilling {} (from {})", virt, real.name_qword());
 
         let instr = Instruction::new(
             InstructionKind::Mov(
@@ -217,19 +217,19 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             span
         );
 
-        writeln!(w, "    {}", instr.node).unwrap();
+        log_writeln!(log, "    {}", instr.node);
         code_out.push(instr);
     }
 
-    fn spill_all(&mut self, span: IlSpanId, code_out: &mut Vec<Instruction>, w: &mut Write) {
+    fn spill_all(&mut self, span: IlSpanId, code_out: &mut Vec<Instruction>, log: &mut Log) {
         for (real, virt) in self.base.spill_all().collect_vec() {
-            self.spill_register(virt, real, span, code_out, w);
+            self.spill_register(virt, real, span, code_out, log);
         };
     }
 
-    fn undirty_all(&mut self, span: IlSpanId, code_out: &mut Vec<Instruction>, w: &mut Write) {
+    fn undirty_all(&mut self, span: IlSpanId, code_out: &mut Vec<Instruction>, log: &mut Log) {
         for (real, virt) in self.base.undirty_all().collect_vec() {
-            self.spill_register(virt, real, span, code_out, w);
+            self.spill_register(virt, real, span, code_out, log);
         };
     }
 
@@ -243,7 +243,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         real: RealRegister,
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
-        w: &mut Write
+        log: &mut Log
     ) {
         let instr = Instruction::new(
             InstructionKind::Mov(
@@ -259,7 +259,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             span
         );
 
-        writeln!(w, "    {}", instr.node).unwrap();
+        log_writeln!(log, "    {}", instr.node);
         code_out.push(instr);
     }
 
@@ -273,7 +273,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         needs_unspill: bool,
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
-        w: &mut Write
+        log: &mut Log
     ) -> RealRegister {
         fn spill_heuristic(
             reg: &(IlRegister, RealRegister, bool),
@@ -290,10 +290,10 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         if let Some(reg) = self.base.try_get(src) {
             reg
         } else if let Some(reg) = self.base.try_allocate(src, None) {
-            writeln!(w, "  Allocated {} in {}", src, reg.name_qword()).unwrap();
+            log_writeln!(log, "  Allocated {} in {}", src, reg.name_qword());
 
             if needs_unspill {
-                self.unspill_register(src, reg, span, code_out, w);
+                self.unspill_register(src, reg, span, code_out, log);
             };
             reg
         } else {
@@ -304,13 +304,13 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             ).unwrap();
 
             if let Some(to_spill) = to_spill {
-                self.spill_register(to_spill, reg, span, code_out, w);
+                self.spill_register(to_spill, reg, span, code_out, log);
             };
 
-            writeln!(w, "  Allocated {} in {}", src, reg.name_qword()).unwrap();
+            log_writeln!(log, "  Allocated {} in {}", src, reg.name_qword());
 
             if needs_unspill {
-                self.unspill_register(src, reg, span, code_out, w);
+                self.unspill_register(src, reg, span, code_out, log);
             };
 
             reg
@@ -323,7 +323,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         real: RealRegister,
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
-        w: &mut Write
+        log: &mut Log
     ) {
         if let Some((old_virt, old_dirty)) = self.base.try_get_in_real(real) {
             if old_virt != virt {
@@ -333,7 +333,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     assert!(self.base.try_move_to(virt, real));
                     assert!(self.base.try_allocate_in(old_virt, old_real));
 
-                    writeln!(w, "  Swapping {} and {} to place {} in {} ({} now in {})", old_virt, virt, virt, real.name_qword(), old_virt, old_real.name_qword()).unwrap();
+                    log_writeln!(log, "  Swapping {} and {} to place {} in {} ({} now in {})", old_virt, virt, virt, real.name_qword(), old_virt, old_real.name_qword());
 
                     let instr = Instruction::new(
                         InstructionKind::XChgRR(
@@ -344,15 +344,15 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    writeln!(w, "    {}", instr.node).unwrap();
+                    log_writeln!(log, "    {}", instr.node);
                     code_out.push(instr);
                 } else {
                     assert!(self.base.try_allocate_in(virt, real));
                     self.lock(virt);
 
-                    let spill_real = self.allocate_and_lock(old_virt, false, span, code_out, w);
+                    let spill_real = self.allocate_and_lock(old_virt, false, span, code_out, log);
 
-                    writeln!(w, "  Moving {} (into {}) to allocate {} in {}", old_virt, spill_real.name_qword(), virt, real.name_qword()).unwrap();
+                    log_writeln!(log, "  Moving {} (into {}) to allocate {} in {}", old_virt, spill_real.name_qword(), virt, real.name_qword());
 
                     let instr = Instruction::new(
                         InstructionKind::Mov(
@@ -363,10 +363,10 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    writeln!(w, "    {}", instr.node).unwrap();
+                    log_writeln!(log, "    {}", instr.node);
                     code_out.push(instr);
 
-                    self.unspill_register(virt, real, span, code_out, w);
+                    self.unspill_register(virt, real, span, code_out, log);
                 };
 
                 if old_dirty {
@@ -376,7 +376,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         } else if let Some(old_real) = self.base.try_get(virt) {
             assert!(self.base.try_move_to(virt, real));
 
-            writeln!(w, "  Moving {} to {} (from {})", virt, real.name_qword(), old_real.name_qword()).unwrap();
+            log_writeln!(log, "  Moving {} to {} (from {})", virt, real.name_qword(), old_real.name_qword());
 
             let instr = Instruction::new(
                 InstructionKind::Mov(
@@ -387,14 +387,14 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 span
             );
 
-            writeln!(w, "    {}", instr.node).unwrap();
+            log_writeln!(log, "    {}", instr.node);
             code_out.push(instr);
         } else {
             assert!(self.base.try_allocate_in(virt, real));
 
-            writeln!(w, "  Allocated {} in {}", virt, real.name_qword()).unwrap();
+            log_writeln!(log, "  Allocated {} in {}", virt, real.name_qword());
 
-            self.unspill_register(virt, real, span, code_out, w);
+            self.unspill_register(virt, real, span, code_out, log);
         };
 
         self.lock(virt);
@@ -406,11 +406,11 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
         to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         if src.0 == RealRegister::None {
             let src_virt = src.1.unwrap();
-            src.0 = self.allocate_and_lock(src_virt, true, span, code_out, w);
+            src.0 = self.allocate_and_lock(src_virt, true, span, code_out, log);
 
             if self.rc.dec(src_virt) == 0 {
                 to_free.push(src_virt);
@@ -426,13 +426,13 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
         to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         if let Some(ref mut base) = mem_arg.base {
-            self.allocate_for_src_reg(base, span, code_out, to_free, w);
+            self.allocate_for_src_reg(base, span, code_out, to_free, log);
         };
         if let Some(ref mut index) = mem_arg.index {
-            self.allocate_for_src_reg(index, span, code_out, to_free, w);
+            self.allocate_for_src_reg(index, span, code_out, to_free, log);
         };
     }
 
@@ -442,14 +442,14 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
         to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         match *src {
             XSrc::Reg(ref mut src) => {
-                self.allocate_for_src_reg(src, span, code_out, to_free, w);
+                self.allocate_for_src_reg(src, span, code_out, to_free, log);
             },
             XSrc::Mem(ref mut mem_arg) => {
-                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, w);
+                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, log);
             },
             _ => {}
         };
@@ -461,12 +461,12 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
         _to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         if dest.0 == RealRegister::None {
             let dest_virt = dest.2.unwrap();
             if let Some(src) = dest.1 {
-                let src_real = self.allocate_and_lock(src, true, span, code_out, w);
+                let src_real = self.allocate_and_lock(src, true, span, code_out, log);
                 if src == dest_virt {
                     dest.0 = src_real;
                     self.rc.dec(src);
@@ -477,9 +477,9 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 } else {
                     let tmp_virt = self.reg_alloc.allocate();
 
-                    writeln!(w, "  Copying {} (into {}) to avoid overwriting it", src, tmp_virt).unwrap();
+                    log_writeln!(log, "  Copying {} (into {}) to avoid overwriting it", src, tmp_virt);
 
-                    let tmp_real = self.allocate_and_lock(tmp_virt, false, span, code_out, w);
+                    let tmp_real = self.allocate_and_lock(tmp_virt, false, span, code_out, log);
                     let instr = Instruction::new(
                         InstructionKind::Mov(
                             RegisterSize::QWord,
@@ -489,7 +489,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    writeln!(w, "    {}", instr.node).unwrap();
+                    log_writeln!(log, "    {}", instr.node);
                     code_out.push(instr);
 
                     self.base.free(tmp_virt);
@@ -499,7 +499,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     dest.1 = Some(tmp_virt);
                 };
             } else {
-                dest.0 = self.allocate_and_lock(dest_virt, false, span, code_out, w);
+                dest.0 = self.allocate_and_lock(dest_virt, false, span, code_out, log);
             };
 
             self.base.mark_dirty(dest_virt);
@@ -515,14 +515,14 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         span: IlSpanId,
         code_out: &mut Vec<Instruction>,
         to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         match *dest {
             XDest::Reg(ref mut dest) => {
-                self.allocate_for_dest_reg(dest, span, code_out, to_free, w);
+                self.allocate_for_dest_reg(dest, span, code_out, to_free, log);
             },
             XDest::Mem(ref mut mem_arg) => {
-                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, w);
+                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, log);
             }
         };
     }
@@ -531,7 +531,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         &mut self,
         dest: &mut XDest,
         src: &mut XSrc,
-        w: &mut Write
+        log: &mut Log
     ) {
         match (dest, src) {
             (&mut XDest::Reg(DestRegister(RealRegister::None, Some(ref mut src1), Some(ref mut dest))),
@@ -545,7 +545,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 };
 
                 if should_swap {
-                    writeln!(w, "  Swapping sources to avoid moving registers").unwrap();
+                    log_writeln!(log, "  Swapping sources to avoid moving registers");
                     mem::swap(src1, src2);
                 };
             },
@@ -558,67 +558,67 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         mut instr: Instruction,
         code_out: &mut Vec<Instruction>,
         to_free: &mut Vec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         let span = instr.span;
         let mut will_emit = true;
         let mut will_unlock = true;
 
-        writeln!(w, "{}", instr.node).unwrap();
+        log_writeln!(log, "{}", instr.node);
 
         match instr.node {
             InstructionKind::RemovableNop => {
                 return;
             },
             InstructionKind::Label(_) => {
-                self.spill_all(span, code_out, w);
+                self.spill_all(span, code_out, log);
             },
             InstructionKind::IMul(_, ref mut dest, ref mut src) => {
-                self.try_commutate(dest, src, w);
+                self.try_commutate(dest, src, log);
 
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::IMulI(_, ref mut dest, ref mut src, _) => {
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_dest_reg(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_dest_reg(dest, span, code_out, to_free, log);
             },
             InstructionKind::Add(_, ref mut dest, ref mut src) => {
-                self.try_commutate(dest, src, w);
+                self.try_commutate(dest, src, log);
 
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Sub(_, ref mut dest, ref mut src) => {
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::And(_, ref mut dest, ref mut src) => {
-                self.try_commutate(dest, src, w);
+                self.try_commutate(dest, src, log);
 
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Test(_, ref mut src1, ref mut src2) => {
-                self.allocate_for_xsrc(src1, span, code_out, to_free, w);
-                self.allocate_for_xsrc(src2, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src1, span, code_out, to_free, log);
+                self.allocate_for_xsrc(src2, span, code_out, to_free, log);
             },
             InstructionKind::Compare(_, ref mut src1, ref mut src2) => {
-                self.allocate_for_xsrc(src1, span, code_out, to_free, w);
-                self.allocate_for_xsrc(src2, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src1, span, code_out, to_free, log);
+                self.allocate_for_xsrc(src2, span, code_out, to_free, log);
             },
             InstructionKind::Neg(_, ref mut dest) => {
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Not(_, ref mut dest) => {
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Mov(
                 _,
                 XDest::Reg(DestRegister(real, None, None)),
                 XSrc::Reg(SrcRegister(RealRegister::None, Some(virt)))
             ) => {
-                self.allocate_and_lock_in(virt, real, span, code_out, w);
+                self.allocate_and_lock_in(virt, real, span, code_out, log);
                 will_emit = false;
                 will_unlock = false;
             },
@@ -627,7 +627,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 XDest::Reg(DestRegister(RealRegister::None, None, Some(virt))),
                 XSrc::Reg(SrcRegister(real, None))
             ) => {
-                writeln!(w, "  Placing {} in {} without unspill", virt, real.name_qword()).unwrap();
+                log_writeln!(log, "  Placing {} in {} without unspill", virt, real.name_qword());
                 if self.base.try_get(virt).is_some() {
                     assert!(self.base.try_move_to(virt, real));
                 } else {
@@ -636,40 +636,40 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 will_emit = false;
             },
             InstructionKind::Mov(_, ref mut dest, ref mut src) => {
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Shl(_, ref mut dest, src) => {
                 if let Some(src) = src {
-                    self.allocate_and_lock_in(src, RealRegister::Rcx, span, code_out, w);
+                    self.allocate_and_lock_in(src, RealRegister::Rcx, span, code_out, log);
                 };
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::ShlI(_, ref mut dest, _) => {
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::XChgRR(_, ref mut src1, ref mut src2) => {
-                self.allocate_for_src_reg(src1, span, code_out, to_free, w);
-                self.allocate_for_src_reg(src2, span, code_out, to_free, w);
+                self.allocate_for_src_reg(src1, span, code_out, to_free, log);
+                self.allocate_for_src_reg(src2, span, code_out, to_free, log);
             },
             InstructionKind::Push(_, ref mut src) => {
-                self.allocate_for_xsrc(src, span, code_out, to_free, w);
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
             },
             InstructionKind::Pop(_, ref mut dest) => {
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::LoadEffectiveAddress(_, ref mut dest, ref mut mem_arg) => {
-                self.allocate_for_dest_reg(dest, span, code_out, to_free, w);
-                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, w);
+                self.allocate_for_dest_reg(dest, span, code_out, to_free, log);
+                self.allocate_for_mem_arg(mem_arg, span, code_out, to_free, log);
             },
             InstructionKind::Jump(_) => {
-                self.spill_all(span, code_out, w);
+                self.spill_all(span, code_out, log);
             },
             InstructionKind::JumpConditional(_, _) => {
-                self.undirty_all(span, code_out, w);
+                self.undirty_all(span, code_out, log);
             },
             InstructionKind::SetCondition(_, ref mut dest) => {
-                self.allocate_for_xdest(dest, span, code_out, to_free, w);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Call(_) => {
                 // TODO Clear volatile registers
@@ -681,19 +681,19 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             },
             InstructionKind::RegIn(ref regs) => {
                 for &(real, virt) in regs.iter() {
-                    self.allocate_and_lock_in(virt, real, span, code_out, w);
+                    self.allocate_and_lock_in(virt, real, span, code_out, log);
                 };
                 will_emit = false;
             }
         };
 
         if will_emit {
-            writeln!(w, "  {}", instr.node).unwrap();
+            log_writeln!(log, "  {}", instr.node);
             code_out.push(instr);
         };
 
         for r in to_free.drain(..) {
-            writeln!(w, "  Freeing {}", r).unwrap();
+            log_writeln!(log, "  Freeing {}", r);
             self.base.free(r);
         };
 
@@ -707,7 +707,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         code_in: &mut Vec<Instruction>,
         code_out: &mut Vec<Instruction>,
         live_at_end: impl IntoIterator<Item=IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
         self.rc.clear();
 
@@ -724,12 +724,12 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         let mut to_free = vec![];
 
         for instr in code_in.drain(..) {
-            self.allocate_for_instr(instr, code_out, &mut to_free, w);
+            self.allocate_for_instr(instr, code_out, &mut to_free, log);
         };
 
-        writeln!(w, "; End of block").unwrap();
+        log_writeln!(log, "; End of block");
         self.unlock_all();
-        self.spill_all(IlSpanId::dummy(), code_out, w);
+        self.spill_all(IlSpanId::dummy(), code_out, log);
     }
 
     pub fn allocate(
@@ -737,9 +737,9 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         func: SymId,
         code_in: Vec<Instruction>,
         params: impl Iterator<Item=(IlRegister, IlType)>,
-        w: &mut Write
+        log: &mut Log
     ) -> Vec<Instruction> {
-        writeln!(w, "\n===== REGISTER ALLOCATION FOR {} =====\n", func).unwrap();
+        log_writeln!(log, "\n===== REGISTER ALLOCATION FOR {} =====\n", func);
 
         let mut prologue = vec![];
 
@@ -762,12 +762,12 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         self.calling_convention.load_args(&mut prologue, params);
 
         let (blocks, cfg) = split_blocks(prologue.into_iter().chain(code_in.into_iter()));
-        let liveness = compute_liveness(&blocks, &cfg, w);
+        let liveness = compute_liveness(&blocks, &cfg, log);
 
         let mut code_out = vec![];
 
         for (label, mut instrs) in blocks {
-            self.allocate_for_block(&mut instrs, &mut code_out, liveness.get(label).iter().cloned(), w);
+            self.allocate_for_block(&mut instrs, &mut code_out, liveness.get(label).iter().cloned(), log);
         };
 
         if self.stack_map.frame_size() != 0 {

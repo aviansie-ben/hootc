@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::io::Write;
 
 use itertools::Itertools;
 
 use super::eliminate_dead_blocks;
 use super::flow_graph::FlowGraph;
 use crate::il::{IlBlock, IlBlockId, IlEndingInstructionKind, IlFunction};
+use crate::log::Log;
 
-pub fn merge_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== BASIC BLOCK MERGING =====\n").unwrap();
+pub fn merge_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== BASIC BLOCK MERGING =====\n");
 
     let mut num_merged = 0;
     let mut i = 1;
@@ -23,10 +23,10 @@ pub fn merge_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &m
 
         let merged = if matches!(prev.end_instr.node, IlEndingInstructionKind::Nop) {
             if prev.instrs.is_empty() {
-                writeln!(w, "Merging blocks {} and {} since {} is empty", prev_id, next_id, prev_id).unwrap();
+                log_writeln!(log, "Merging blocks {} and {} since {} is empty", prev_id, next_id, prev_id);
 
                 for &old_pred_id in cfg.get(prev_id).rev_edges.iter() {
-                    writeln!(w, "  Rewriting {} to target {}", old_pred_id, next_id).unwrap();
+                    log_writeln!(log, "  Rewriting {} to target {}", old_pred_id, next_id);
 
                     let old_pred = func.blocks.get_mut(&old_pred_id).unwrap();
 
@@ -41,7 +41,7 @@ pub fn merge_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &m
 
                 true
             } else if cfg.get(next_id).rev_edges.len() == 1 {
-                writeln!(w, "Merging blocks {} and {} since {} has one predecessor", prev_id, next_id, next_id).unwrap();
+                log_writeln!(log, "Merging blocks {} and {} since {} has one predecessor", prev_id, next_id, next_id);
 
                 func.block_order.remove(i);
                 cfg.merge_nodes_back(prev_id, next_id);
@@ -68,14 +68,14 @@ pub fn merge_blocks(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &m
     };
 
     if num_merged != 0 {
-        writeln!(w, "\n===== AFTER BASIC BLOCK MERGING =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+        log_writeln!(log, "\n===== AFTER BASIC BLOCK MERGING =====\n\n{}\n{}", func, cfg.pretty(func));
     };
 
     num_merged
 }
 
-pub fn eliminate_redundant_jumps(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== REDUNDANT JUMP ELIMINATION =====\n").unwrap();
+pub fn eliminate_redundant_jumps(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== REDUNDANT JUMP ELIMINATION =====\n");
 
     let mut num_eliminated = 0;
 
@@ -93,19 +93,19 @@ pub fn eliminate_redundant_jumps(func: &mut IlFunction, cfg: &mut FlowGraph<IlBl
         let prev = func.blocks.get_mut(&prev_id).unwrap();
 
         if prev.end_instr.node.is_unconditional_jump_to(next_id) {
-            writeln!(w, "Eliminating redundant jump from {} to fallthrough {}", prev_id, next_id).unwrap();
+            log_writeln!(log, "Eliminating redundant jump from {} to fallthrough {}", prev_id, next_id);
 
             prev.end_instr.node = IlEndingInstructionKind::Nop;
             num_eliminated += 1;
         } else if prev.end_instr.node.target_block() == Some(next_id) {
-            writeln!(w, "Eliminating redundant conditional jump from {} to fallthrough {}", prev_id, next_id).unwrap();
+            log_writeln!(log, "Eliminating redundant conditional jump from {} to fallthrough {}", prev_id, next_id);
 
             prev.end_instr.node = IlEndingInstructionKind::Nop;
             cfg.remove_edge(prev_id, next_id);
             num_eliminated += 1;
         } else if effective_fallthrough.is_some() && prev.end_instr.node.target_block() == effective_fallthrough {
             let effective_fallthrough = effective_fallthrough.unwrap();
-            writeln!(w, "Eliminating redundant conditional jump from {} to effective fallthrough {}", prev_id, effective_fallthrough).unwrap();
+            log_writeln!(log, "Eliminating redundant conditional jump from {} to effective fallthrough {}", prev_id, effective_fallthrough);
 
             prev.end_instr.node = IlEndingInstructionKind::Nop;
             cfg.remove_edge(prev_id, effective_fallthrough);
@@ -114,14 +114,14 @@ pub fn eliminate_redundant_jumps(func: &mut IlFunction, cfg: &mut FlowGraph<IlBl
     };
 
     if num_eliminated != 0 {
-        writeln!(w, "\n===== AFTER REDUNDANT JUMP ELIMINATION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+        log_writeln!(log, "\n===== AFTER REDUNDANT JUMP ELIMINATION =====\n\n{}\n{}", func, cfg.pretty(func));
     };
 
     num_eliminated
 }
 
-pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== END INSTRUCTION PROPAGATION =====\n").unwrap();
+pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== END INSTRUCTION PROPAGATION =====\n");
 
     let mut fallthrough = HashMap::new();
 
@@ -155,7 +155,7 @@ pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>
             let span = new_end_instr.span;
             let can_fall_through = new_end_instr.node.can_fall_through();
 
-            writeln!(w, "Propagating block-ending instruction from {} to {}", next_id, prev_id).unwrap();
+            log_writeln!(log, "Propagating block-ending instruction from {} to {}", next_id, prev_id);
             num_propagated += 1;
 
             func.blocks.get_mut(&prev_id).unwrap().end_instr = new_end_instr;
@@ -180,7 +180,7 @@ pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>
 
                 let actual_ft_id = fallthrough[&next_id];
 
-                writeln!(w, "  Adding block {} to provide fallthrough edge to {}", ft_id, actual_ft_id).unwrap();
+                log_writeln!(log, "  Adding block {} to provide fallthrough edge to {}", ft_id, actual_ft_id);
 
                 let mut ft_block = IlBlock::new();
                 ft_block.id = ft_id;
@@ -209,14 +209,14 @@ pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>
     };
 
     if num_propagated != 0 {
-        writeln!(w, "\n===== AFTER END INSTRUCTION PROPAGATION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+        log_writeln!(log, "\n===== AFTER END INSTRUCTION PROPAGATION =====\n\n{}\n{}", func, cfg.pretty(func));
     };
 
     num_propagated
 }
 
-pub fn rewrite_jump_targets(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> usize {
-    writeln!(w, "\n===== JUMP TARGET REWRITING =====\n").unwrap();
+pub fn rewrite_jump_targets(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== JUMP TARGET REWRITING =====\n");
 
     let mut num_rewritten = 0;
 
@@ -246,7 +246,7 @@ pub fn rewrite_jump_targets(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId
 
         let prev = func.blocks.get_mut(&prev_id).unwrap();
 
-        writeln!(w, "Rewriting jump from {} to {} into a jump to {}", prev_id, next_id, actual_next_id).unwrap();
+        log_writeln!(log, "Rewriting jump from {} to {} into a jump to {}", prev_id, next_id, actual_next_id);
 
         prev.end_instr.node.set_target_block(actual_next_id);
         cfg.remove_edge(prev_id, next_id);
@@ -255,30 +255,30 @@ pub fn rewrite_jump_targets(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId
     };
 
     if num_rewritten != 0 {
-        writeln!(w, "\n===== AFTER JUMP TARGET REWRITING =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+        log_writeln!(log, "\n===== AFTER JUMP TARGET REWRITING =====\n\n{}\n{}", func, cfg.pretty(func));
     };
 
     num_rewritten
 }
 
-pub fn do_merge_blocks_group(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, w: &mut Write) -> bool {
-    eliminate_dead_blocks(func, cfg, w);
+pub fn do_merge_blocks_group(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> bool {
+    eliminate_dead_blocks(func, cfg, log);
 
-    let mut cont = merge_blocks(func, cfg, w) != 0;
-    cont = eliminate_redundant_jumps(func, cfg, w) != 0 || cont;
-    cont = propagate_end_instr(func, cfg, w) != 0 || cont;
-    cont = rewrite_jump_targets(func, cfg, w) != 0 || cont;
+    let mut cont = merge_blocks(func, cfg, log) != 0;
+    cont = eliminate_redundant_jumps(func, cfg, log) != 0 || cont;
+    cont = propagate_end_instr(func, cfg, log) != 0 || cont;
+    cont = rewrite_jump_targets(func, cfg, log) != 0 || cont;
 
     if !cont {
         return false;
     };
 
     while cont {
-        eliminate_dead_blocks(func, cfg, w);
-        cont = merge_blocks(func, cfg, w) != 0;
-        cont = eliminate_redundant_jumps(func, cfg, w) != 0 || cont;
-        cont = propagate_end_instr(func, cfg, w) != 0 || cont;
-        cont = rewrite_jump_targets(func, cfg, w) != 0 || cont;
+        eliminate_dead_blocks(func, cfg, log);
+        cont = merge_blocks(func, cfg, log) != 0;
+        cont = eliminate_redundant_jumps(func, cfg, log) != 0 || cont;
+        cont = propagate_end_instr(func, cfg, log) != 0 || cont;
+        cont = rewrite_jump_targets(func, cfg, log) != 0 || cont;
     };
     true
 }

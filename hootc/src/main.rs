@@ -6,6 +6,7 @@ use lib::analysis::error::PrettyError;
 use lib::analysis::typecheck::analyze_module;
 use lib::sym::SymId;
 use lib::lex::Lexer;
+use lib::log::Log;
 use lib::parse::parse_module;
 use lib::types::{PrettyType, TypeId};
 
@@ -42,13 +43,16 @@ fn main() {
     }
     println!();
 
-    let mut program = lib::ilgen::generate_il(&module, &mut io::stdout());
+    let mut stdout = io::stdout();
+    let mut log = Log(Some(&mut stdout));
 
-    lib::optimizer::optimize_program(&mut program, &mut io::stdout());
+    let mut program = lib::ilgen::generate_il(&module, &mut log);
+
+    lib::optimizer::optimize_program(&mut program, &mut log);
 
     for (_, f) in program.funcs {
-        let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut io::stdout());
-        lib::codegen::amd64::peephole::do_pre_ra_peephole(f.sym, &mut code, &mut io::stdout());
+        let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut log);
+        lib::codegen::amd64::peephole::do_pre_ra_peephole(f.sym, &mut code, &mut log);
         let code = lib::codegen::amd64::reg_alloc::RegisterAllocator::new(
             lib::codegen::amd64::calling_convention::SysVCallingConvention(),
             f.reg_alloc.clone()
@@ -56,7 +60,7 @@ fn main() {
             f.sym,
             code,
             f.reg_map.params().iter().map(|&reg| (reg, f.reg_map.get_reg_info(reg).1)),
-            &mut io::stdout()
+            &mut log
         );
 
         println!("\n");

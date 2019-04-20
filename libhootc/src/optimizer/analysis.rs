@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Debug, Display};
 use std::hash::Hash;
-use std::io::Write;
 use std::mem;
 
 use itertools::{self, Itertools};
@@ -10,6 +9,7 @@ use smallvec::SmallVec;
 
 use crate::bitvec::BitVec;
 use crate::il::{IlBlock, IlBlockId, IlEndingInstruction, IlEndingInstructionKind, IlFunction, IlOperand, IlRegister, IlSpanId};
+use crate::log::Log;
 use super::flow_graph::FlowGraph;
 
 pub struct AnalysisStructures {
@@ -54,7 +54,7 @@ impl BlockLivenessInfo {
 
 fn compute_block_liveness_effects(
     block: &IlBlock,
-    _w: &mut Write,
+    _log: &mut Log,
     donor_live_end: HashSet<IlRegister>
 ) -> BlockLivenessInfo {
     let mut liveness = BlockLivenessInfo {
@@ -102,13 +102,13 @@ fn set_block_liveness<T: Debug + Display + Copy + Eq + Hash>(
     new_live_begin: HashSet<IlRegister>,
     cfg: &FlowGraph<T>,
     worklist: &mut VecDeque<T>,
-    w: &mut Write
+    log: &mut Log
 ) {
-    write!(w, "{}: Recomputed, live_begin = {{ ", id).unwrap();
+    log_write!(log, "{}: Recomputed, live_begin = {{ ", id);
     for &reg in new_live_begin.iter() {
-        write!(w, "{} ", reg).unwrap();
+        log_write!(log, "{} ", reg);
     };
-    writeln!(w, "}}").unwrap();
+    log_writeln!(log, "}}");
 
     for &prev_id in cfg.get(id).rev_edges.iter() {
         let prev_liveness = all_liveness.get_mut(&prev_id).unwrap();
@@ -119,11 +119,11 @@ fn set_block_liveness<T: Debug + Display + Copy + Eq + Hash>(
         };
 
         if updated {
-            write!(w, "  {}: Updated, live_end = {{ ", prev_id).unwrap();
+            log_write!(log, "  {}: Updated, live_end = {{ ", prev_id);
             for &reg in prev_liveness.live_end.iter() {
-                write!(w, "{} ", reg).unwrap();
+                log_write!(log, "{} ", reg);
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
 
             if !worklist.contains(&prev_id) {
                 worklist.push_back(prev_id);
@@ -138,7 +138,7 @@ fn apply_block_liveness_effects<T: Debug + Display + Copy + Eq + Hash>(
     all_liveness: &mut HashMap<T, BlockLivenessInfo>,
     cfg: &FlowGraph<T>,
     worklist: &mut VecDeque<T>,
-    w: &mut Write
+    log: &mut Log
 ) {
     let liveness = all_liveness.get(&id).unwrap();
     let mut new_live_begin = liveness.live_end.clone();
@@ -152,9 +152,9 @@ fn apply_block_liveness_effects<T: Debug + Display + Copy + Eq + Hash>(
     };
 
     if new_live_begin != liveness.live_begin {
-        set_block_liveness(id, all_liveness, new_live_begin, cfg, worklist, w);
+        set_block_liveness(id, all_liveness, new_live_begin, cfg, worklist, log);
     } else {
-        writeln!(w, "{}: Recomputed, no update", id).unwrap();
+        log_writeln!(log, "{}: Recomputed, no update", id);
     };
 }
 
@@ -172,7 +172,7 @@ impl <T: Debug + Display + Copy + Eq + Hash> LivenessGraph<T> {
         LivenessGraph { live: HashMap::new(), global_regs: BitVec::new() }
     }
 
-    pub fn recompute_from_effects(&mut self, effects: Vec<(T, BlockLivenessInfo)>, cfg: &FlowGraph<T>, w: &mut Write) {
+    pub fn recompute_from_effects(&mut self, effects: Vec<(T, BlockLivenessInfo)>, cfg: &FlowGraph<T>, log: &mut Log) {
         self.global_regs.clear();
 
         let mut all_liveness = HashMap::new();
@@ -183,20 +183,20 @@ impl <T: Debug + Display + Copy + Eq + Hash> LivenessGraph<T> {
                 self.global_regs.set(reg, true);
             };
 
-            write!(w, "{}: kill = {{ ", id).unwrap();
+            log_write!(log, "{}: kill = {{ ", id);
             for &reg in liveness.kill.iter() {
-                write!(w, "{} ", reg).unwrap();
+                log_write!(log, "{} ", reg);
             };
-            write!(w, "}}, gen = {{ ").unwrap();
+            log_write!(log, "}}, gen = {{ ");
             for &reg in liveness.gen.iter() {
-                write!(w, "{} ", reg).unwrap();
+                log_write!(log, "{} ", reg);
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
 
             all_liveness.insert(id, liveness);
         };
 
-        writeln!(w).unwrap();
+        log_writeln!(log);
 
         let mut worklist = VecDeque::with_capacity(order.len());
 
@@ -205,23 +205,23 @@ impl <T: Debug + Display + Copy + Eq + Hash> LivenessGraph<T> {
                 &mut all_liveness.get_mut(&id).unwrap().live_begin,
                 HashSet::new()
             );
-            set_block_liveness(id, &mut all_liveness, new_live_begin, cfg, &mut worklist, w);
+            set_block_liveness(id, &mut all_liveness, new_live_begin, cfg, &mut worklist, log);
         };
 
         while let Some(next) = worklist.pop_front() {
-            apply_block_liveness_effects(next, &mut all_liveness, cfg, &mut worklist, w);
+            apply_block_liveness_effects(next, &mut all_liveness, cfg, &mut worklist, log);
         };
 
-        writeln!(w).unwrap();
+        log_writeln!(log);
 
         self.live.clear();
 
         for (id, liveness) in all_liveness {
-            write!(w, "{}: live_end = {{ ", id).unwrap();
+            log_write!(log, "{}: live_end = {{ ", id);
             for &reg in liveness.live_end.iter() {
-                write!(w, "{} ", reg).unwrap();
+                log_write!(log, "{} ", reg);
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
             self.live.insert(id, liveness.live_end);
         };
     }
@@ -246,7 +246,7 @@ impl <T: Debug + Display + Copy + Eq + Hash> Default for LivenessGraph<T> {
 }
 
 impl LivenessGraph<IlBlockId> {
-    pub fn recompute_global_regs(&mut self, func: &IlFunction, _w: &mut Write) {
+    pub fn recompute_global_regs(&mut self, func: &IlFunction, _log: &mut Log) {
         self.global_regs.clear();
 
         let mut defined = BitVec::new();
@@ -267,18 +267,18 @@ impl LivenessGraph<IlBlockId> {
         };
     }
 
-    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, w: &mut Write) {
-        writeln!(w, "\n===== LIVENESS ANALYSIS =====\n").unwrap();
+    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, log: &mut Log) {
+        log_writeln!(log, "\n===== LIVENESS ANALYSIS =====\n");
 
         let effects = func.block_order.iter().map(|&id| {
             (id, compute_block_liveness_effects(
                 &func.blocks[&id],
-                w,
+                log,
                 self.live.remove(&id).unwrap_or_else(HashSet::new)
             ))
         }).collect_vec();
 
-        self.recompute_from_effects(effects, cfg, w);
+        self.recompute_from_effects(effects, cfg, log);
     }
 }
 
@@ -305,7 +305,7 @@ fn compute_block_reaching_def_effects(
     id: IlBlockId,
     block: &IlBlock,
     global_regs: &BitVec<IlRegister>,
-    _w: &mut Write,
+    _log: &mut Log,
     donor_defs_begin: HashMap<IlRegister, SmallVec<[Def; 1]>>
 ) -> BlockReachingDefInfo {
     let mut defs = BlockReachingDefInfo {
@@ -338,17 +338,17 @@ fn set_block_reaching_defs(
     new_defs_end: HashMap<IlRegister, SmallVec<[Def; 1]>>,
     cfg: &FlowGraph<IlBlockId>,
     worklist: &mut VecDeque<IlBlockId>,
-    w: &mut Write
+    log: &mut Log
 ) {
-    write!(w, "{}: Recomputed, defs_end = {{ ", id).unwrap();
+    log_write!(log, "{}: Recomputed, defs_end = {{ ", id);
     for (&reg, defs) in new_defs_end.iter() {
-        write!(w, "({}: [ ", reg).unwrap();
+        log_write!(log, "({}: [ ", reg);
         for &Def(def_blk, def_off) in defs.iter() {
-            write!(w, "{}:{} ", def_blk, def_off).unwrap();
+            log_write!(log, "{}:{} ", def_blk, def_off);
         };
-        write!(w, "]) ").unwrap();
+        log_write!(log, "]) ");
     };
-    writeln!(w, "}}").unwrap();
+    log_writeln!(log, "}}");
 
     for &next_id in cfg.get(id).edges.iter() {
         let next_defs = all_defs.get_mut(&next_id).unwrap();
@@ -368,15 +368,15 @@ fn set_block_reaching_defs(
         };
 
         if updated {
-            write!(w, "  {}: Updated, defs_begin = {{ ", next_id).unwrap();
+            log_write!(log, "  {}: Updated, defs_begin = {{ ", next_id);
             for (&reg, defs) in next_defs.defs_begin.iter() {
-                write!(w, "({}: [ ", reg).unwrap();
+                log_write!(log, "({}: [ ", reg);
                 for &Def(def_blk, def_off) in defs.iter() {
-                    write!(w, "{}:{} ", def_blk, def_off).unwrap();
+                    log_write!(log, "{}:{} ", def_blk, def_off);
                 };
-                write!(w, "]) ").unwrap();
+                log_write!(log, "]) ");
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
 
             if !worklist.contains(&next_id) {
                 worklist.push_back(next_id);
@@ -391,7 +391,7 @@ fn apply_block_reaching_def_effects(
     all_defs: &mut HashMap<IlBlockId, BlockReachingDefInfo>,
     cfg: &FlowGraph<IlBlockId>,
     worklist: &mut VecDeque<IlBlockId>,
-    w: &mut Write
+    log: &mut Log
 ) {
     let defs = all_defs.get(&id).unwrap();
     let mut new_defs_end = defs.defs_begin.clone();
@@ -401,9 +401,9 @@ fn apply_block_reaching_def_effects(
     };
 
     if new_defs_end != defs.defs_end {
-        set_block_reaching_defs(id, all_defs, new_defs_end, cfg, worklist, w);
+        set_block_reaching_defs(id, all_defs, new_defs_end, cfg, worklist, log);
     } else {
-        writeln!(w, "{}: Recomputed, no update", id).unwrap();
+        log_writeln!(log, "{}: Recomputed, no update", id);
     };
 }
 
@@ -425,9 +425,9 @@ impl ReachingDefs {
         func: &IlFunction,
         cfg: &FlowGraph<IlBlockId>,
         global_regs: &BitVec<IlRegister>,
-        w: &mut Write
+        log: &mut Log
     ) {
-        writeln!(w, "\n===== REACHING DEFS ANALYSIS =====\n").unwrap();
+        log_writeln!(log, "\n===== REACHING DEFS ANALYSIS =====\n");
 
         let mut all_defs = HashMap::new();
 
@@ -436,15 +436,15 @@ impl ReachingDefs {
                 id,
                 &func.blocks[&id],
                 global_regs,
-                w,
+                log,
                 self.defs.remove(&id).unwrap_or_else(HashMap::new)
             );
 
-            write!(w, "{}: gen = {{ ", id).unwrap();
+            log_write!(log, "{}: gen = {{ ", id);
             for &(reg, Def(def_blk, def_off)) in defs.gen.iter() {
-                write!(w, "({}: {}:{}) ", reg, def_blk, def_off).unwrap();
+                log_write!(log, "({}: {}:{}) ", reg, def_blk, def_off);
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
 
             all_defs.insert(id, defs);
         };
@@ -452,10 +452,10 @@ impl ReachingDefs {
         let first_block = func.block_order[0];
         let first_block_defs = all_defs.get_mut(&first_block).unwrap();
 
-        write!(w, "{}: Added param dummies, defs_begin = {{ ", first_block).unwrap();
+        log_write!(log, "{}: Added param dummies, defs_begin = {{ ", first_block);
         for &reg in func.reg_map.params() {
             first_block_defs.defs_begin.insert(reg, smallvec![Def::dummy()]);
-            write!(w, "({}: [ {}:0 ]) ", reg, IlBlockId::dummy()).unwrap();
+            log_write!(log, "({}: [ {}:0 ]) ", reg, IlBlockId::dummy());
 
             match first_block_defs.defs_end.entry(reg) {
                 Entry::Occupied(_) => {}, // Must have been in gen set, do not add dummy
@@ -464,9 +464,9 @@ impl ReachingDefs {
                 }
             };
         };
-        writeln!(w, "}}").unwrap();
+        log_writeln!(log, "}}");
 
-        writeln!(w).unwrap();
+        log_writeln!(log);
 
         let mut worklist = VecDeque::new();
 
@@ -475,25 +475,25 @@ impl ReachingDefs {
                 &mut all_defs.get_mut(&id).unwrap().defs_end,
                 HashMap::new()
             );
-            set_block_reaching_defs(id, &mut all_defs, new_defs_end, cfg, &mut worklist, w);
+            set_block_reaching_defs(id, &mut all_defs, new_defs_end, cfg, &mut worklist, log);
         };
 
         while let Some(next) = worklist.pop_front() {
-            apply_block_reaching_def_effects(next, &mut all_defs, cfg, &mut worklist, w);
+            apply_block_reaching_def_effects(next, &mut all_defs, cfg, &mut worklist, log);
         };
 
-        writeln!(w).unwrap();
+        log_writeln!(log);
 
         for (id, defs) in all_defs {
-            write!(w, "{}: defs_begin = {{ ", id).unwrap();
+            log_write!(log, "{}: defs_begin = {{ ", id);
             for (&reg, defs) in defs.defs_begin.iter() {
-                write!(w, "({}: [ ", reg).unwrap();
+                log_write!(log, "({}: [ ", reg);
                 for &Def(def_blk, def_off) in defs.iter() {
-                    write!(w, "{}:{} ", def_blk, def_off).unwrap();
+                    log_write!(log, "{}:{} ", def_blk, def_off);
                 };
-                write!(w, "]) ").unwrap();
+                log_write!(log, "]) ");
             };
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
             self.defs.insert(id, defs.defs_begin);
         };
     }
@@ -539,7 +539,7 @@ impl ExtendedBlocks {
         self.blocks.clear();
     }
 
-    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, w: &mut Write) {
+    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, log: &mut Log) {
         fn visit(
             id: IlBlockId,
             ebbs: &mut ExtendedBlocks,
@@ -570,7 +570,7 @@ impl ExtendedBlocks {
             };
         }
 
-        writeln!(w, "\n===== BASIC BLOCK EXTENSION =====\n").unwrap();
+        log_writeln!(log, "\n===== BASIC BLOCK EXTENSION =====\n");
 
         self.clear();
 
@@ -589,7 +589,7 @@ impl ExtendedBlocks {
             visit(id, self, ExtendedBlock::new(), cfg, &extensions);
         };
 
-        write!(w, "{}", self).unwrap();
+        log_write!(log, "{}", self);
     }
 
     pub fn iter(&self) -> impl Iterator<Item=&ExtendedBlock> {
@@ -626,10 +626,10 @@ impl Dominance {
         Dominance { dom: HashMap::new() }
     }
 
-    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, w: &mut Write) {
+    pub fn recompute(&mut self, func: &IlFunction, cfg: &FlowGraph<IlBlockId>, log: &mut Log) {
         let mut worklist = VecDeque::new();
 
-        writeln!(w, "\n===== DOMINANCE  =====\n").unwrap();
+        log_writeln!(log, "\n===== DOMINANCE  =====\n");
 
         let start_block = func.block_order[0];
 
@@ -690,13 +690,13 @@ impl Dominance {
         };
 
         for &id in func.block_order.iter() {
-            write!(w, "{} dominated by {{ ", id).unwrap();
+            log_write!(log, "{} dominated by {{ ", id);
 
             for dom_id in self.dom[&id].iter() {
-                write!(w, "{} ", dom_id).unwrap();
+                log_write!(log, "{} ", dom_id);
             };
 
-            writeln!(w, "}}").unwrap();
+            log_writeln!(log, "}}");
         };
     }
 
@@ -748,9 +748,9 @@ impl Loops {
         func: &mut IlFunction,
         cfg: &mut FlowGraph<IlBlockId>,
         dom: &Dominance,
-        w: &mut Write
+        log: &mut Log
     ) {
-        writeln!(w, "\n===== LOOP DETECTION =====\n").unwrap();
+        log_writeln!(log, "\n===== LOOP DETECTION =====\n");
 
         let mut by_header: HashMap<IlBlockId, usize> = HashMap::new();
 
@@ -760,7 +760,7 @@ impl Loops {
 
             for &next_id in node.edges.iter() {
                 if dom.get(next_id) {
-                    writeln!(w, "Found back edge from {} to {}", id, next_id).unwrap();
+                    log_writeln!(log, "Found back edge from {} to {}", id, next_id);
 
                     match by_header.entry(next_id) {
                         Entry::Occupied(e) => {
@@ -778,12 +778,12 @@ impl Loops {
         let mut fixed = false;
 
         for l in self.loops.iter_mut() {
-            writeln!(w, "Processing loop with header {}", l.header).unwrap();
+            log_writeln!(log, "Processing loop with header {}", l.header);
 
             let header_node = cfg.get(l.header);
 
             if l.header == func.block_order[0] || header_node.rev_edges.len() != l.back_edges.len() + 1 {
-                writeln!(w, "  No pre-header found").unwrap();
+                log_writeln!(log, "  No pre-header found");
             } else {
                 let pre_header = header_node.rev_edges.iter()
                     .cloned()
@@ -794,9 +794,9 @@ impl Loops {
 
                 if pre_header_node.edges.len() == 1 {
                     l.pre_header = pre_header;
-                    writeln!(w, "  Detected {} as pre-header", pre_header).unwrap();
+                    log_writeln!(log, "  Detected {} as pre-header", pre_header);
                 } else {
-                    writeln!(w, "  No pre-header found ({} is a conditional jump)", pre_header).unwrap();
+                    log_writeln!(log, "  No pre-header found ({} is a conditional jump)", pre_header);
                 };
             };
 
@@ -822,13 +822,13 @@ impl Loops {
                 add_block_to_loop(l, id, func, cfg);
             };
 
-            write!(w, "  Detected blocks: [ ").unwrap();
+            log_write!(log, "  Detected blocks: [ ");
 
             for id in l.blocks() {
-                write!(w, "{} ", id).unwrap();
+                log_write!(log, "{} ", id);
             };
 
-            writeln!(w, "]").unwrap();
+            log_writeln!(log, "]");
 
             if l.pre_header == IlBlockId::dummy() {
                 let to_fixup = header_node.rev_edges.iter()
@@ -847,7 +847,7 @@ impl Loops {
                     .find(|&(_, &id)| l.blocks().any(|id2| id == id2))
                     .unwrap().0;
 
-                writeln!(w, "  Inserting new pre-header {} before {}", l.pre_header, func.block_order[pos]).unwrap();
+                log_writeln!(log, "  Inserting new pre-header {} before {}", l.pre_header, func.block_order[pos]);
                 func.block_order.insert(pos, l.pre_header);
 
                 let header_node = cfg.get_mut(l.header);
@@ -856,7 +856,7 @@ impl Loops {
                 header_node.rev_edges.push(l.pre_header);
 
                 for &id in to_fixup.iter() {
-                    writeln!(w, "    Fixing up {}", id).unwrap();
+                    log_writeln!(log, "    Fixing up {}", id);
 
                     let fixup_node = cfg.get_mut(id);
 
@@ -882,7 +882,7 @@ impl Loops {
         };
 
         if fixed {
-            writeln!(w, "\n===== AFTER LOOP DETECTION =====\n\n{}\n{}", func, cfg.pretty(func)).unwrap();
+            log_writeln!(log, "\n===== AFTER LOOP DETECTION =====\n\n{}\n{}", func, cfg.pretty(func));
         };
     }
 }

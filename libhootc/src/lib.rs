@@ -18,6 +18,8 @@ macro_rules! matches {
     }}
 }
 
+#[macro_use] pub mod log;
+
 pub mod analysis;
 pub mod ast;
 pub mod bitvec;

@@ -1,19 +1,19 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::mem;
 
 use super::{do_merge_blocks_group, eliminate_dead_stores, propagate_copies_locally};
 use super::analysis::AnalysisStructures;
 use crate::bitvec::BitVec;
 use crate::il::*;
+use crate::log::Log;
 
 pub fn move_loop_invariant_code(
     func: &mut IlFunction,
     structs: &AnalysisStructures,
-    w: &mut Write
+    log: &mut Log
 ) -> usize {
     let loops = &structs.loops;
-    writeln!(w, "\n===== LOOP INVARIANT CODE MOTION =====\n").unwrap();
+    log_writeln!(log, "\n===== LOOP INVARIANT CODE MOTION =====\n");
 
     let mut num_moved = 0;
 
@@ -60,7 +60,7 @@ pub fn move_loop_invariant_code(
                         let ty = func.reg_map.get_reg_info(target).1;
                         func.reg_map.add_reg_info(reg, IlRegisterInfo(IlRegisterType::Temp, ty));
 
-                        writeln!(w, "Moving loop-invariant instruction at {}:{} into pre-header {} using temp {}", id, i, l.pre_header, reg).unwrap();
+                        log_writeln!(log, "Moving loop-invariant instruction at {}:{} into pre-header {} using temp {}", id, i, l.pre_header, reg);
 
                         let mut new_ins = IlInstructionKind::Copy(target, IlOperand::Register(reg));
 
@@ -70,7 +70,7 @@ pub fn move_loop_invariant_code(
 
                         moved_const.insert(target, reg);
                     } else {
-                        writeln!(w, "Moving loop-invariant instruction at {}:{} into pre-header {}", id, i, l.pre_header).unwrap();
+                        log_writeln!(log, "Moving loop-invariant instruction at {}:{} into pre-header {}", id, i, l.pre_header);
                         let mut new_ins = IlInstructionKind::Nop;
 
                         mem::swap(&mut ins.node, &mut new_ins);
@@ -91,7 +91,7 @@ pub fn move_loop_invariant_code(
     };
 
     if num_moved != 0 {
-        writeln!(w, "\n===== AFTER LOOP INVARIANT CODE MOTION =====\n\n{}", func).unwrap();
+        log_writeln!(log, "\n===== AFTER LOOP INVARIANT CODE MOTION =====\n\n{}", func);
     };
 
     num_moved
@@ -100,24 +100,24 @@ pub fn move_loop_invariant_code(
 pub fn do_loop_opt_group(
     func: &mut IlFunction,
     structs: &mut AnalysisStructures,
-    w: &mut Write
+    log: &mut Log
 ) {
-    structs.dom.recompute(func, &structs.cfg, w);
-    structs.loops.recompute(func, &mut structs.cfg, &structs.dom, w);
+    structs.dom.recompute(func, &structs.cfg, log);
+    structs.loops.recompute(func, &mut structs.cfg, &structs.dom, log);
 
     if structs.loops.loops.is_empty() {
         return;
     };
 
-    move_loop_invariant_code(func, structs, w);
+    move_loop_invariant_code(func, structs, log);
 
-    structs.ebbs.recompute(func, &structs.cfg, w);
-    structs.liveness.recompute_global_regs(func, w);
-    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), w);
-    propagate_copies_locally(func, structs, w);
+    structs.ebbs.recompute(func, &structs.cfg, log);
+    structs.liveness.recompute_global_regs(func, log);
+    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), log);
+    propagate_copies_locally(func, structs, log);
 
-    structs.liveness.recompute(func, &structs.cfg, w);
-    eliminate_dead_stores(func, &mut structs.liveness, w);
+    structs.liveness.recompute(func, &structs.cfg, log);
+    eliminate_dead_stores(func, &mut structs.liveness, log);
 
-    do_merge_blocks_group(func, &mut structs.cfg, w);
+    do_merge_blocks_group(func, &mut structs.cfg, log);
 }
