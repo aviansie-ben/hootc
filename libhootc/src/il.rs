@@ -310,6 +310,51 @@ impl IlInstructionKind {
         }
     }
 
+    pub fn requires_strict_order(&self) -> bool {
+        use self::IlInstructionKind::*;
+        match *self {
+            PrintI32(_) => true,
+            Call(_, _, _, _) => true,
+            _ => false
+        }
+    }
+
+    pub fn can_move_across(&self, other: &IlInstructionKind) -> bool {
+        if self.requires_strict_order() && other.requires_strict_order() {
+            return false;
+        };
+
+        if let Some(target) = self.target() {
+            let mut uses_result = false;
+            other.for_operands(|o| match *o {
+                IlOperand::Register(reg) if reg == target => {
+                    uses_result = true;
+                },
+                _ => {}
+            });
+
+            if uses_result {
+                return false;
+            };
+        };
+
+        if let Some(target) = other.target() {
+            let mut overwrites_operand = false;
+            self.for_operands(|o| match *o {
+                IlOperand::Register(reg) if reg == target => {
+                    overwrites_operand = true;
+                },
+                _ => {}
+            });
+
+            if overwrites_operand {
+                return false;
+            };
+        };
+
+        true
+    }
+
     pub fn requires_unique_span_id(&self) -> bool {
         use self::IlInstructionKind::*;
         match *self {

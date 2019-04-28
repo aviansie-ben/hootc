@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::mem;
 
 use itertools::Itertools;
 use smallvec::SmallVec;
@@ -185,6 +186,88 @@ pub fn propagate_copies_locally(func: &mut IlFunction, structs: &AnalysisStructu
     };
 
     num_replaced
+}
+
+pub fn elide_copies(func: &mut IlFunction, structs: &AnalysisStructures, log: &mut Log) -> usize {
+    log_writeln!(log, "\n===== COPY ELISION =====\n");
+
+    let global_regs = structs.liveness.global_regs();
+    let mut num_elided = 0;
+
+    for &id in func.block_order.iter() {
+        loop {
+            let block = func.blocks.get_mut(&id).unwrap();
+
+            let mut movable: Vec<(IlRegister, usize, &mut IlInstruction)> = vec![];
+            let mut move_candidates: Vec<(
+                IlRegister, IlRegister,
+                usize, &mut IlInstruction,
+                usize, &mut IlInstruction
+            )> = vec![];
+
+            for (i, instr) in block.instrs.iter_mut().enumerate() {
+                if let IlInstructionKind::Copy(target, IlOperand::Register(src)) = instr.node {
+                    let movable_instr = movable.drain_filter(|&mut (move_target, _, _)| {
+                        move_target == src
+                    }).next();
+
+                    if let Some((_, j, movable_instr)) = movable_instr {
+                        move_candidates.push((target, src, i, instr, j, movable_instr));
+                    };
+                } else {
+                    movable.drain_filter(|&mut (_, _, ref mut movable_instr)| {
+                        !movable_instr.node.can_move_across(&instr.node)
+                    });
+                    instr.node.for_operands(|o| match *o {
+                        IlOperand::Register(reg) => {
+                            move_candidates.drain_filter(|&mut (_, src, _, _, _, _)| src == reg);
+                        },
+                        _ => {}
+                    });
+
+                    if let Some(target) = instr.node.target() {
+                        if !global_regs.get(target) {
+                            let old_movable = movable.iter_mut()
+                                .find(|&&mut (old_target, _, _)| old_target == target);
+
+                            if let Some(old_movable) = old_movable {
+                                old_movable.1 = i;
+                                old_movable.2 = instr;
+                            } else {
+                                movable.push((target, i, instr));
+                            };
+                        };
+                    };
+                };
+            };
+
+            let num_elided_block = move_candidates.len();
+            for (target, src, i, copy_instr, j, instr) in move_candidates {
+                log_writeln!(log, "Moving {}:{} to {}:{} in order to avoid copy from {} to {}", id, j, id, i, src, target);
+
+                copy_instr.node = IlInstructionKind::Nop;
+                *instr.node.target_mut().unwrap() = target;
+
+                mem::swap(instr, copy_instr);
+            };
+
+            if num_elided_block != 0 {
+                num_elided += num_elided_block;
+            } else {
+                block.instrs.drain_filter(|instr| match instr.node {
+                    IlInstructionKind::Nop => true,
+                    _ => false
+                });
+                break;
+            };
+        };
+    };
+
+    if num_elided != 0 {
+        log_writeln!(log, "\n===== AFTER COPY ELISION =====\n\n{}", func);
+    };
+
+    num_elided
 }
 
 fn calc_constant_jump_condition(instr: &IlEndingInstructionKind) -> Option<bool> {
@@ -591,6 +674,9 @@ pub fn do_constant_fold_group(
     structs: &mut AnalysisStructures,
     log: &mut Log
 ) -> bool {
+    structs.liveness.recompute_global_regs(func, log);
+    elide_copies(func, structs, log);
+
     structs.ebbs.recompute(func, &structs.cfg, log);
     propagate_copies_locally(func, structs, log);
 
@@ -613,6 +699,9 @@ pub fn do_constant_fold_group(
     };
 
     while cont {
+        structs.liveness.recompute_global_regs(func, log);
+        elide_copies(func, structs, log);
+
         structs.ebbs.recompute(func, &structs.cfg, log);
         propagate_copies_locally(func, structs, log);
 
