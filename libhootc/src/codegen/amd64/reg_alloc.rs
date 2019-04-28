@@ -568,7 +568,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
 
         match instr.node {
             InstructionKind::RemovableNop => {
-                return;
+                will_unlock = false;
             },
             InstructionKind::Label(_) => {
                 self.spill_all(span, code_out, log);
