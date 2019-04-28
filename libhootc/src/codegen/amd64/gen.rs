@@ -8,6 +8,7 @@ use crate::log::Log;
 struct CodeGenContext {
     code: Vec<Instruction>,
     regs: IlRegisterAllocator,
+    reg_map: IlRegisterMap,
     end_label: Label,
     block_labels: HashMap<IlBlockId, Label>
 }
@@ -23,6 +24,8 @@ fn generate_load_for_operand(o: &IlOperand, ctx: &mut CodeGenContext, span: IlSp
     match *o {
         IlOperand::Const(IlConst::I32(val)) => {
             let reg = ctx.regs.allocate();
+            ctx.reg_map.add_reg_info(reg, IlRegisterInfo(IlRegisterType::Temp, IlType::I32));
+
             ctx.code.push(Instruction::new(
                 InstructionKind::Mov(
                     RegisterSize::DWord,
@@ -333,7 +336,9 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
             ));
         },
         Return(ref val) => {
-            generate_load_for_operand_into(val, RealRegister::Rax, ctx, span);
+            if !matches!(*val, IlOperand::Register(reg) if ctx.reg_map.get_reg_info(reg).1 == IlType::Void) {
+                generate_load_for_operand_into(val, RealRegister::Rax, ctx, span);
+            };
             ctx.code.push(Instruction::new(InstructionKind::RegClear, instr.span));
             ctx.code.push(Instruction::new(
                 InstructionKind::Jump(ctx.end_label),
@@ -375,6 +380,7 @@ pub fn generate_code(func: &IlFunction, log: &mut Log) -> Vec<Instruction> {
     let mut ctx = CodeGenContext {
         code: vec![],
         regs: func.reg_alloc.clone(),
+        reg_map: func.reg_map.clone(),
         end_label,
         block_labels
     };
