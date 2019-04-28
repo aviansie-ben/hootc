@@ -15,7 +15,13 @@ macro_rules! matches {
             $pat => true,
             _ => false
         }
-    }}
+    }};
+    ($obj:expr, $pat:pat if $cond:expr) => {{
+        match $obj {
+            $pat if $cond => true,
+            _ => false
+        }
+    }};
 }
 
 #[macro_use] pub mod log;

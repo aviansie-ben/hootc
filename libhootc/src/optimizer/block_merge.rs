@@ -155,6 +155,13 @@ pub fn propagate_end_instr(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>
             let span = new_end_instr.span;
             let can_fall_through = new_end_instr.node.can_fall_through();
 
+            // Don't propagate if the target block is an empty infinite loop. That can result in the
+            // optimizer itself entering an infinite loop, since it will keep thinking that further
+            // optimization is possible based on a newly propagated instruction.
+            if matches!(next.end_instr.node, IlEndingInstructionKind::Jump(tgt) if tgt == next_id) {
+                continue;
+            };
+
             log_writeln!(log, "Propagating block-ending instruction from {} to {}", next_id, prev_id);
             num_propagated += 1;
 
