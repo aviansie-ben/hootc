@@ -132,14 +132,13 @@ fn pre_ra_peephole_1(instrs: &mut [Instruction], log: &mut Log) -> bool {
                 XDest::Reg(DestRegister(RealRegister::None, Some(src), Some(dst))),
                 XSrc::Imm(imm)
             ) => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Turning IMUL {} = {} * {} into IMULI", dst, src, imm);
 
                 i0.node = InstructionKind::IMulI(
                     sz,
                     DestRegister(RealRegister::None, None, Some(dst)),
                     XSrc::Reg(SrcRegister(RealRegister::None, Some(src))),
-                    imm as i32
+                    imm
                 );
 
                 true
@@ -150,10 +149,8 @@ fn pre_ra_peephole_1(instrs: &mut [Instruction], log: &mut Log) -> bool {
     }
 }
 
-fn can_add(imm: i64, shift: u8, disp: i32) -> bool {
-    assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
-
-    (((imm as i32) << shift) >> shift) == imm as i32 && disp.checked_add((imm as i32) << shift).is_some()
+fn can_add(imm: i32, shift: u8, disp: i32) -> bool {
+    ((imm << shift) >> shift) == imm && disp.checked_add(imm << shift).is_some()
 }
 
 fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
@@ -172,7 +169,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                 )
             ) if src1 == dst0 && (sz0 == RegisterSize::QWord || sz0 == RegisterSize::DWord)
                 && sz0 == sz1 && i0.rc == 1 => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Turning {} = {} + {} + {} into an LEA", dst1, src0_0, src0_1, imm);
 
                 i0.node = InstructionKind::RemovableNop;
@@ -183,7 +179,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base: Some(SrcRegister(RealRegister::None, Some(src0_0))),
                         index: Some(SrcRegister(RealRegister::None, Some(src0_1))),
                         scale: 1,
-                        displacement: imm as i32
+                        displacement: imm
                     }
                 );
                 true
@@ -207,7 +203,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                     src1_0
                 };
 
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Turning {} = {} + {} + {} into an LEA", dst1, src0, imm, src1);
 
                 i0.node = InstructionKind::RemovableNop;
@@ -218,7 +213,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base: Some(SrcRegister(RealRegister::None, Some(src0))),
                         index: Some(SrcRegister(RealRegister::None, Some(src1))),
                         scale: 1,
-                        displacement: imm as i32
+                        displacement: imm
                     }
                 );
                 true
@@ -237,7 +232,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
             ) if (sz0 == RegisterSize::QWord || sz0 == RegisterSize::DWord) && sz0 == sz1
                 && dst0 == src1 && shift <= MemArg::max_scale_shift()
                 && i0.rc == 1 => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Turning {} = ({} << {}) + {} into an LEA", dst1, src0, shift, imm);
 
                 i0.node = InstructionKind::RemovableNop;
@@ -248,7 +242,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base: None,
                         index: Some(SrcRegister(RealRegister::None, Some(src0))),
                         scale: 1 << shift,
-                        displacement: imm as i32
+                        displacement: imm
                     }
                 );
 
@@ -302,7 +296,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                     XSrc::Imm(imm)
                 )
             ) if sz0 == sz1 && dst0 == src1 && can_add(imm, 0, displacement) && i0.rc == 1 => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Merging {} = {} + {} into previous LEA", dst1, src1, imm);
 
                 i0.node = InstructionKind::LoadEffectiveAddress(
@@ -312,7 +305,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base,
                         index,
                         scale,
-                        displacement: displacement + (imm as i32)
+                        displacement: displacement + imm
                     }
                 );
                 i1.node = InstructionKind::RemovableNop;
@@ -336,7 +329,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                     }
                 )
             ) if sz0 == sz1 && src1 == dst0 && can_add(imm, 1, displacement) && i0.rc == 1 => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Merging {} = {} + {} into next LEA with base {}", dst0, src0, imm, dst0);
 
                 i0.node = InstructionKind::RemovableNop;
@@ -347,7 +339,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base: Some(SrcRegister(RealRegister::None, Some(src0))),
                         index,
                         scale,
-                        displacement: displacement + (imm as i32)
+                        displacement: displacement + imm
                     }
                 );
 
@@ -370,7 +362,6 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                     }
                 )
             ) if sz0 == sz1 && src1 == dst0 && can_add(imm, scale.trailing_zeros() as u8, displacement) && i0.rc == 1 => {
-                assert!(imm >= i32::min_value() as i64 && imm <= i32::max_value() as i64);
                 log_writeln!(log, "Merging {} = {} + {} into next LEA with index {} * {}", dst0, src0, imm, dst0, scale);
 
                 i0.node = InstructionKind::RemovableNop;
@@ -381,7 +372,7 @@ fn pre_ra_peephole_2(instrs: &mut [Instruction], log: &mut Log) -> bool {
                         base,
                         index: Some(SrcRegister(RealRegister::None, Some(src0))),
                         scale,
-                        displacement: displacement + ((imm as i32) * (scale as i32))
+                        displacement: displacement + (imm * (scale as i32))
                     }
                 );
 

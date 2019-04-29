@@ -418,8 +418,7 @@ impl <'a> fmt::Display for PrettyXDest<'a> {
 pub enum XSrc {
     Mem(MemArg),
     Reg(SrcRegister),
-    Imm(i64),
-    ImmSym(String)
+    Imm(i32)
 }
 
 impl XSrc {
@@ -445,8 +444,7 @@ impl <'a> fmt::Display for PrettyXSrc<'a> {
         match *src {
             XSrc::Mem(ref mem) => write!(f, "{}", mem.pretty(size)),
             XSrc::Reg(ref reg) => write!(f, "{}", reg.pretty(size)),
-            XSrc::Imm(val) => write!(f, "{}", val),
-            XSrc::ImmSym(ref name) => write!(f, "{}", name)
+            XSrc::Imm(val) => write!(f, "{}", val)
         }
     }
 }

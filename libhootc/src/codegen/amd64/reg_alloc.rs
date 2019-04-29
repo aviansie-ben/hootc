@@ -873,7 +873,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             code_out[2].node = InstructionKind::Sub(
                 RegisterSize::QWord,
                 XDest::Reg(DestRegister::real(self.calling_convention.stack_pointer())),
-                XSrc::Imm(self.stack_map.alloc.frame_size() as i64)
+                XSrc::Imm(self.stack_map.alloc.frame_size() as i32)
             );
 
             code_out.push(Instruction::new(

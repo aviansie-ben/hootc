@@ -16,7 +16,7 @@ struct CodeGenContext {
 
 fn generate_src_for_operand(o: &IlOperand, _ctx: &mut CodeGenContext, _span: IlSpanId) -> XSrc {
     match *o {
-        IlOperand::Const(IlConst::I32(val)) => XSrc::Imm(val as i64),
+        IlOperand::Const(IlConst::I32(val)) => XSrc::Imm(val),
         IlOperand::Register(reg) => XSrc::Reg(SrcRegister::virt(reg))
     }
 }
@@ -31,7 +31,7 @@ fn generate_load_for_operand(o: &IlOperand, ctx: &mut CodeGenContext, span: IlSp
                 InstructionKind::Mov(
                     RegisterSize::DWord,
                     XDest::Reg(DestRegister::virt(None, reg)),
-                    XSrc::Imm(val as i64)
+                    XSrc::Imm(val)
                 ),
                 span
             ));
