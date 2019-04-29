@@ -6,12 +6,12 @@ use itertools::Itertools;
 
 use crate::codegen::label::Label;
 use crate::codegen::reg_alloc::RegisterAllocatorBase;
-use crate::il::{IlRegister, IlRegisterAllocator, IlSpanId, IlType};
+use crate::il::*;
 use crate::log::Log;
 use crate::optimizer::analysis::{BlockLivenessInfo, LivenessGraph};
 use crate::optimizer::flow_graph::FlowGraph;
-use crate::sym::SymId;
 
+use super::Function;
 use super::calling_convention::CallingConvention;
 use super::instr::*;
 
@@ -57,32 +57,49 @@ impl RefCounts {
     }
 }
 
+pub struct StackAllocator {
+    next: i32
+}
+
+impl StackAllocator {
+    pub fn new() -> StackAllocator {
+        StackAllocator { next: 0 }
+    }
+
+    pub fn alloc(&mut self, size: i32, align: i32) -> i32 {
+        if self.next % align != 0 {
+            self.next -= align + (self.next % align);
+        };
+
+        self.next -= size;
+        self.next
+    }
+
+    pub fn frame_size(&self) -> u32 {
+        -self.next as u32
+    }
+}
+
 pub struct RegStackMap {
     map: HashMap<IlRegister, i32>,
-    next: i32
+    pub alloc: StackAllocator
 }
 
 impl RegStackMap {
     pub fn new() -> RegStackMap {
-        RegStackMap { map: HashMap::new(), next: -8 }
+        RegStackMap { map: HashMap::new(), alloc: StackAllocator::new() }
     }
 
-    pub fn get_or_alloc(&mut self, r: IlRegister) -> i32 {
+    pub fn get_or_alloc(&mut self, r: IlRegister, size: i32, align: i32) -> i32 {
         match self.map.entry(r) {
             Entry::Occupied(e) => *e.get(),
             Entry::Vacant(e) => {
-                let off = self.next;
-                self.next -= 8;
+                let off = self.alloc.alloc(size, align);
 
                 e.insert(off);
                 off
             }
         }
-    }
-
-    pub fn frame_size(&self) -> u32 {
-        assert!(self.next < 0);
-        -(self.next + 8) as u32
     }
 }
 
@@ -172,25 +189,37 @@ pub struct RegisterAllocator<T: CallingConvention> {
     calling_convention: T,
     locked_registers: Vec<IlRegister>,
     reg_alloc: IlRegisterAllocator,
+    reg_map: IlRegisterMap,
     rc: RefCounts,
+    has_calls: bool,
     pub stack_map: RegStackMap
 }
 
 impl <T: CallingConvention> RegisterAllocator<T> {
-    pub fn new(calling_convention: T, reg_alloc: IlRegisterAllocator) -> RegisterAllocator<T> {
+    pub fn new(calling_convention: T) -> RegisterAllocator<T> {
         let base = RegisterAllocatorBase::new(calling_convention.allocatable_regs());
         RegisterAllocator {
             base,
             calling_convention,
             locked_registers: vec![],
-            reg_alloc,
+            reg_alloc: IlRegisterAllocator::new(),
+            reg_map: IlRegisterMap::new(),
             rc: RefCounts::new(),
+            has_calls: false,
             stack_map: RegStackMap::new()
         }
     }
 
     fn unlock_all(&mut self) {
         self.locked_registers.clear();
+    }
+
+    fn alloc_params(&mut self, reg: IlRegister) -> (i32, i32) {
+        match self.reg_map.get_reg_info(reg).1 {
+            IlType::I32 => (4, 4),
+            IlType::Addr => (8, 8),
+            IlType::Void => (0, 1)
+        }
     }
 
     fn spill_register(
@@ -203,14 +232,17 @@ impl <T: CallingConvention> RegisterAllocator<T> {
     ) {
         log_writeln!(log, "  Spilling {} (from {})", virt, real.name_qword());
 
+        let (size, align) = self.alloc_params(virt);
+        assert!(size > 0);
+
         let instr = Instruction::new(
             InstructionKind::Mov(
-                RegisterSize::QWord,
+                RegisterSize::for_size(size).unwrap(),
                 XDest::Mem(MemArg {
                     base: None,
                     index: Some(SrcRegister::real(self.calling_convention.frame_pointer())),
                     scale: 1,
-                    displacement: self.stack_map.get_or_alloc(virt)
+                    displacement: self.stack_map.get_or_alloc(virt, size, align)
                 }),
                 XSrc::Reg(SrcRegister(real, Some(virt)))
             ),
@@ -245,15 +277,18 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         code_out: &mut Vec<Instruction>,
         log: &mut Log
     ) {
+        let (size, align) = self.alloc_params(virt);
+        assert!(size > 0);
+
         let instr = Instruction::new(
             InstructionKind::Mov(
-                RegisterSize::QWord,
+                RegisterSize::for_size(size).unwrap(),
                 XDest::Reg(DestRegister(real, None, Some(virt))),
                 XSrc::Mem(MemArg {
                     base: None,
                     index: Some(SrcRegister::real(self.calling_convention.frame_pointer())),
                     scale: 1,
-                    displacement: self.stack_map.get_or_alloc(virt)
+                    displacement: self.stack_map.get_or_alloc(virt, size, align)
                 })
             ),
             span
@@ -333,11 +368,14 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     assert!(self.base.try_move_to(virt, real));
                     assert!(self.base.try_allocate_in(old_virt, old_real));
 
+                    let size1 = RegisterSize::for_size(self.alloc_params(old_virt).0).unwrap();
+                    let size2 = RegisterSize::for_size(self.alloc_params(virt).0).unwrap();
+
                     log_writeln!(log, "  Swapping {} and {} to place {} in {} ({} now in {})", old_virt, virt, virt, real.name_qword(), old_virt, old_real.name_qword());
 
                     let instr = Instruction::new(
                         InstructionKind::XChgRR(
-                            RegisterSize::QWord,
+                            size1.max(size2),
                             SrcRegister(real, Some(old_virt)),
                             SrcRegister(old_real, Some(virt))
                         ),
@@ -351,12 +389,13 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     self.lock(virt);
 
                     let spill_real = self.allocate_and_lock(old_virt, false, span, code_out, log);
+                    let size = RegisterSize::for_size(self.alloc_params(old_virt).0).unwrap();
 
                     log_writeln!(log, "  Moving {} (into {}) to allocate {} in {}", old_virt, spill_real.name_qword(), virt, real.name_qword());
 
                     let instr = Instruction::new(
                         InstructionKind::Mov(
-                            RegisterSize::QWord,
+                            size,
                             XDest::Reg(DestRegister(spill_real, None, Some(old_virt))),
                             XSrc::Reg(SrcRegister(real, Some(old_virt)))
                         ),
@@ -376,11 +415,13 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         } else if let Some(old_real) = self.base.try_get(virt) {
             assert!(self.base.try_move_to(virt, real));
 
+            let size = RegisterSize::for_size(self.alloc_params(virt).0).unwrap();
+
             log_writeln!(log, "  Moving {} to {} (from {})", virt, real.name_qword(), old_real.name_qword());
 
             let instr = Instruction::new(
                 InstructionKind::Mov(
-                    RegisterSize::QWord,
+                    size,
                     XDest::Reg(DestRegister(real, None, Some(virt))),
                     XSrc::Reg(SrcRegister(old_real, Some(virt)))
                 ),
@@ -476,13 +517,17 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     dest.0 = src_real;
                 } else {
                     let tmp_virt = self.reg_alloc.allocate();
+                    self.reg_map.add_reg_info(tmp_virt, IlRegisterInfo(
+                        IlRegisterType::Temp,
+                        self.reg_map.get_reg_info(src).1
+                    ));
 
                     log_writeln!(log, "  Copying {} (into {}) to avoid overwriting it", src, tmp_virt);
 
                     let tmp_real = self.allocate_and_lock(tmp_virt, false, span, code_out, log);
                     let instr = Instruction::new(
                         InstructionKind::Mov(
-                            RegisterSize::QWord,
+                            RegisterSize::for_size(self.alloc_params(src).0).unwrap(),
                             XDest::Reg(DestRegister(tmp_real, None, Some(tmp_virt))),
                             XSrc::Reg(SrcRegister(src_real, Some(src)))
                         ),
@@ -633,6 +678,24 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 } else {
                     assert!(self.base.try_allocate_in(virt, real));
                 };
+                self.base.mark_dirty(virt);
+                will_emit = false;
+            },
+            InstructionKind::Mov(
+                _,
+                XDest::Reg(DestRegister(RealRegister::None, None, Some(dest))),
+                XSrc::Reg(SrcRegister(RealRegister::None, Some(src)))
+            ) if self.rc.get(src) == 1 => {
+                let (real, _) = self.base.free(src);
+
+                log_writeln!(log, "  Copy from now-dead {} to {} within {} is nopped", src, dest, real.name_qword());
+
+                if self.base.try_get(dest).is_some() {
+                    assert!(self.base.try_move_to(dest, real));
+                } else {
+                    assert!(self.base.try_allocate_in(dest, real));
+                };
+                self.base.mark_dirty(dest);
                 will_emit = false;
             },
             InstructionKind::Mov(_, ref mut dest, ref mut src) => {
@@ -672,6 +735,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::Call(_) => {
+                self.has_calls = true;
                 // TODO Clear volatile registers
             },
             InstructionKind::Ret => {},
@@ -732,36 +796,38 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         self.spill_all(IlSpanId::dummy(), code_out, log);
     }
 
+    fn rewrite_without_frame_pointer(&mut self, code: &mut Vec<Instruction>) {
+        for instr in code.iter_mut() {
+            if let Some(mem_arg) = instr.node.mem_arg_mut() {
+                if mem_arg.index == Some(SrcRegister(self.calling_convention.frame_pointer(), None)) {
+                    mem_arg.index = Some(SrcRegister(self.calling_convention.stack_pointer(), None));
+                };
+            };
+        };
+    }
+
     pub fn allocate(
         &mut self,
-        func: SymId,
-        code_in: Vec<Instruction>,
-        params: impl Iterator<Item=(IlRegister, IlType)>,
+        mut func: Function,
         log: &mut Log
-    ) -> Vec<Instruction> {
-        log_writeln!(log, "\n===== REGISTER ALLOCATION FOR {} =====\n", func);
+    ) -> Function {
+        log_writeln!(log, "\n===== REGISTER ALLOCATION FOR {} =====\n", func.sym);
+
+        mem::swap(&mut self.reg_alloc, &mut func.regs);
+        mem::swap(&mut self.reg_map, &mut func.reg_map);
 
         let mut prologue = vec![];
 
-        prologue.push(Instruction::new(
-            InstructionKind::Push(
-                RegisterSize::QWord,
-                XSrc::Reg(SrcRegister::real(self.calling_convention.frame_pointer()))
-            ),
-            IlSpanId::dummy()
-        ));
-        prologue.push(Instruction::new(
-            InstructionKind::Mov(
-                RegisterSize::QWord,
-                XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer())),
-                XSrc::Reg(SrcRegister::real(self.calling_convention.stack_pointer()))
-            ),
-            IlSpanId::dummy()
-        ));
         prologue.push(Instruction::new(InstructionKind::RemovableNop, IlSpanId::dummy()));
-        self.calling_convention.load_args(&mut prologue, params);
+        prologue.push(Instruction::new(InstructionKind::RemovableNop, IlSpanId::dummy()));
+        prologue.push(Instruction::new(InstructionKind::RemovableNop, IlSpanId::dummy()));
 
-        let (blocks, cfg) = split_blocks(prologue.into_iter().chain(code_in.into_iter()));
+        self.calling_convention.load_args(
+            &mut prologue,
+            self.reg_map.params().iter().map(|&reg| (reg, self.reg_map.get_reg_info(reg).1))
+        );
+
+        let (blocks, cfg) = split_blocks(prologue.into_iter().chain(func.instrs.into_iter()));
         let liveness = compute_liveness(&blocks, &cfg, log);
 
         let mut code_out = vec![];
@@ -770,31 +836,68 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             self.allocate_for_block(&mut instrs, &mut code_out, liveness.get(label).iter().cloned(), log);
         };
 
-        if self.stack_map.frame_size() != 0 {
+        if !self.has_calls && self.stack_map.alloc.frame_size() <= self.calling_convention.stack_red_zone() {
+            log_writeln!(log, "Function can use red zone, so omitting frame setup/teardown");
+
+            if self.calling_convention.is_frame_pointer_mandatory() {
+                code_out[0].node = InstructionKind::Push(
+                    RegisterSize::QWord,
+                    XSrc::Reg(SrcRegister::real(self.calling_convention.frame_pointer()))
+                );
+                code_out[1].node = InstructionKind::Mov(
+                    RegisterSize::QWord,
+                    XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer())),
+                    XSrc::Reg(SrcRegister::real(self.calling_convention.stack_pointer()))
+                );
+
+                code_out.push(Instruction::new(
+                    InstructionKind::Pop(
+                        RegisterSize::QWord,
+                        XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer()))
+                    ),
+                    IlSpanId::dummy()
+                ));
+            } else {
+                self.rewrite_without_frame_pointer(&mut code_out);
+            };
+        } else {
+            code_out[0].node = InstructionKind::Push(
+                RegisterSize::QWord,
+                XSrc::Reg(SrcRegister::real(self.calling_convention.frame_pointer()))
+            );
+            code_out[1].node = InstructionKind::Mov(
+                RegisterSize::QWord,
+                XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer())),
+                XSrc::Reg(SrcRegister::real(self.calling_convention.stack_pointer()))
+            );
             code_out[2].node = InstructionKind::Sub(
                 RegisterSize::QWord,
                 XDest::Reg(DestRegister::real(self.calling_convention.stack_pointer())),
-                XSrc::Imm(self.stack_map.frame_size() as i64)
+                XSrc::Imm(self.stack_map.alloc.frame_size() as i64)
             );
+
+            code_out.push(Instruction::new(
+                InstructionKind::Mov(
+                    RegisterSize::QWord,
+                    XDest::Reg(DestRegister::real(self.calling_convention.stack_pointer())),
+                    XSrc::Reg(SrcRegister::real(self.calling_convention.frame_pointer()))
+                ),
+                IlSpanId::dummy()
+            ));
+            code_out.push(Instruction::new(
+                InstructionKind::Pop(
+                    RegisterSize::QWord,
+                    XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer()))
+                ),
+                IlSpanId::dummy()
+            ));
         };
 
-        code_out.push(Instruction::new(
-            InstructionKind::Mov(
-                RegisterSize::QWord,
-                XDest::Reg(DestRegister::real(self.calling_convention.stack_pointer())),
-                XSrc::Reg(SrcRegister::real(self.calling_convention.frame_pointer()))
-            ),
-            IlSpanId::dummy()
-        ));
-        code_out.push(Instruction::new(
-            InstructionKind::Pop(
-                RegisterSize::QWord,
-                XDest::Reg(DestRegister::real(self.calling_convention.frame_pointer()))
-            ),
-            IlSpanId::dummy()
-        ));
         code_out.push(Instruction::new(InstructionKind::Ret, IlSpanId::dummy()));
 
-        code_out
+        func.instrs = code_out;
+        mem::swap(&mut self.reg_alloc, &mut func.regs);
+        mem::swap(&mut self.reg_map, &mut func.reg_map);
+        func
     }
 }

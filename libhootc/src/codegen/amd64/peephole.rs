@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+use super::Function;
 use super::instr::*;
 use crate::bitvec::BitVec;
 use crate::codegen::label::Label;
 use crate::il::IlRegister;
 use crate::log::Log;
-use crate::sym::SymId;
 
 fn for_used_labels<F: FnMut (Label) -> ()>(instr: &InstructionKind, mut f: F) {
     match *instr {
@@ -480,17 +480,17 @@ fn pre_ra_peephole_4(instrs: &mut [Instruction], log: &mut Log) -> bool {
     }
 }
 
-pub fn do_pre_ra_peephole(func: SymId, code: &mut Vec<Instruction>, log: &mut Log) {
-    log_writeln!(log, "\n===== PRE REGISTER ALLOCATION PEEPHOLES ON {} =====\n", func);
+pub fn do_pre_ra_peephole(func: &mut Function, log: &mut Log) {
+    log_writeln!(log, "\n===== PRE REGISTER ALLOCATION PEEPHOLES ON {} =====\n", func.sym);
 
     loop {
-        remove_unused_labels(code, log);
-        recalculate_rc(code);
+        remove_unused_labels(&mut func.instrs, log);
+        recalculate_rc(&mut func.instrs);
 
         let mut changed = false;
 
-        for i in 0..code.len() {
-            let code = &mut code[i..];
+        for i in 0..func.instrs.len() {
+            let code = &mut func.instrs[i..];
 
             changed = pre_ra_peephole_4(code, log) || changed;
             changed = pre_ra_peephole_3(code, log) || changed;

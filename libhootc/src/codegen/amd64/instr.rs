@@ -67,12 +67,24 @@ impl Condition {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RegisterSize {
-    QWord,
-    DWord,
+    Byte,
     Word,
-    Byte
+    DWord,
+    QWord
+}
+
+impl RegisterSize {
+    pub fn for_size(size: i32) -> Option<RegisterSize> {
+        match size {
+            1 => Some(RegisterSize::Byte),
+            2 => Some(RegisterSize::Word),
+            4 => Some(RegisterSize::DWord),
+            8 => Some(RegisterSize::QWord),
+            _ => None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -376,6 +388,14 @@ pub enum XDest {
 }
 
 impl XDest {
+    pub fn as_mem_arg_mut(&mut self) -> Option<&mut MemArg> {
+        if let XDest::Mem(ref mut mem_arg) = *self {
+            Some(mem_arg)
+        } else {
+            None
+        }
+    }
+
     pub fn pretty(&self, size: RegisterSize) -> PrettyXDest {
         PrettyXDest(size, self)
     }
@@ -403,6 +423,14 @@ pub enum XSrc {
 }
 
 impl XSrc {
+    pub fn as_mem_arg_mut(&mut self) -> Option<&mut MemArg> {
+        if let XSrc::Mem(ref mut mem_arg) = *self {
+            Some(mem_arg)
+        } else {
+            None
+        }
+    }
+
     pub fn pretty(&self, size: RegisterSize) -> PrettyXSrc {
         PrettyXSrc(size, self)
     }
@@ -653,6 +681,66 @@ impl InstructionKind {
             InstructionKind::RegClear => {},
             InstructionKind::RegIn(_) => {}
         };
+    }
+
+    pub fn mem_arg_mut(&mut self) -> Option<&mut MemArg> {
+        match *self {
+            InstructionKind::RemovableNop => None,
+            InstructionKind::Label(_) => None,
+            InstructionKind::IMul(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
+            InstructionKind::IMulI(_, _, ref mut src, _) => {
+                src.as_mem_arg_mut()
+            },
+            InstructionKind::Add(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
+            InstructionKind::Sub(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
+            InstructionKind::And(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
+            InstructionKind::Test(_, ref mut src1, ref mut src2) => {
+                src1.as_mem_arg_mut().or(src2.as_mem_arg_mut())
+            },
+            InstructionKind::Compare(_, ref mut src1, ref mut src2) => {
+                src1.as_mem_arg_mut().or(src2.as_mem_arg_mut())
+            },
+            InstructionKind::Neg(_, ref mut dest) => {
+                dest.as_mem_arg_mut()
+            },
+            InstructionKind::Not(_, ref mut dest) => {
+                dest.as_mem_arg_mut()
+            },
+            InstructionKind::Mov(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
+            InstructionKind::Shl(_, ref mut dest, _) => {
+                dest.as_mem_arg_mut()
+            },
+            InstructionKind::ShlI(_, ref mut dest, _) => {
+                dest.as_mem_arg_mut()
+            },
+            InstructionKind::XChgRR(_, _, _) => None,
+            InstructionKind::Push(_, ref mut src) => {
+                src.as_mem_arg_mut()
+            },
+            InstructionKind::Pop(_, ref mut dest) => {
+                dest.as_mem_arg_mut()
+            },
+            InstructionKind::LoadEffectiveAddress(_, _, ref mut mem_arg) => {
+                Some(mem_arg)
+            },
+            InstructionKind::Jump(_) => None,
+            InstructionKind::JumpConditional(_, _) => None,
+            InstructionKind::SetCondition(_, _) => None,
+            InstructionKind::Call(_) => None,
+            InstructionKind::Ret => None,
+            InstructionKind::RegClear => None,
+            InstructionKind::RegIn(_) => None
+        }
     }
 
     pub fn sets_eflags(&self) -> bool {

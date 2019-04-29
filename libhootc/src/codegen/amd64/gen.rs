@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::Function;
 use super::instr::*;
 use crate::codegen::label::{Label, LabelAlloc};
 use crate::il::*;
@@ -369,7 +370,7 @@ fn generate_code_for_block(block: &IlBlock, ctx: &mut CodeGenContext, log: &mut 
     generate_code_for_end_instr(&block.end_instr, ctx, log);
 }
 
-pub fn generate_code(func: &IlFunction, log: &mut Log) -> Vec<Instruction> {
+pub fn generate_code(func: &IlFunction, log: &mut Log) -> Function {
     log_writeln!(log, "\n===== INSTRUCTION SELECTION FOR {} =====\n", func.sym);
 
     let mut labels = LabelAlloc::new();
@@ -391,5 +392,10 @@ pub fn generate_code(func: &IlFunction, log: &mut Log) -> Vec<Instruction> {
 
     ctx.code.push(Instruction::new(InstructionKind::Label(end_label), IlSpanId::dummy()));
 
-    ctx.code
+    Function {
+        sym: func.sym,
+        instrs: ctx.code,
+        regs: ctx.regs,
+        reg_map: ctx.reg_map
+    }
 }

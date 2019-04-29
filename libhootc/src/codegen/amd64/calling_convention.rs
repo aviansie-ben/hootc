@@ -7,6 +7,7 @@ pub trait CallingConvention {
     fn int_arg_regs(&self) -> &'static [RealRegister];
     fn int_return_regs(&self) -> &'static [RealRegister];
 
+    fn is_frame_pointer_mandatory(&self) -> bool;
     fn frame_pointer(&self) -> RealRegister;
     fn stack_pointer(&self) -> RealRegister;
 
@@ -115,6 +116,9 @@ impl CallingConvention for SysVCallingConvention {
         Self::INT_RETURN_REGS
     }
 
+    fn is_frame_pointer_mandatory(&self) -> bool {
+        false
+    }
     fn frame_pointer(&self) -> RealRegister {
         RealRegister::Rbp
     }
