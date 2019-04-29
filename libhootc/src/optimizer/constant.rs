@@ -21,6 +21,7 @@ fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
         AddI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_add(r)),
         SubI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_sub(r)),
         MulI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_mul(r)),
+        ShlI32(_, Const(I32(l)), Const(I32(r))) => I32(l >> r),
         EqI32(_, Const(I32(l)), Const(I32(r))) => I32(if l == r { 1 } else { 0 }),
         NeI32(_, Const(I32(l)), Const(I32(r))) => I32(if l != r { 1 } else { 0 }),
         _ => return None
@@ -472,6 +473,11 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             emit_extra(IlInstructionKind::ShlI32(tmp, Register(l), Const(I32(bits as i32))));
             *instr = IlInstructionKind::SubI32(tgt, Register(l), Register(tmp));
 
+            true
+        },
+        ShlI32(tgt, Register(l), Const(I32(0))) => {
+            log_writeln!(log, "Collapsed {} << 0 => {} at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));
             true
         },
         EqI32(tgt, Register(l), Register(r)) if l == r => {
