@@ -170,14 +170,27 @@ impl <'a> fmt::Display for PrettyTy<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VarDecl {
+    pub mutable: bool,
+    pub id: Ident,
+    pub ty: Ty
+}
+
+impl VarDecl {
+    pub fn new(mutable: bool, id: Ident, ty: Ty) -> VarDecl {
+        VarDecl { mutable, id, ty }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncSig {
-    pub params: Vec<(Ident, Ty)>,
+    pub params: Vec<VarDecl>,
     pub params_span: Span,
     pub return_type: Ty
 }
 
 impl FuncSig {
-    pub fn new(params: Vec<(Ident, Ty)>, params_span: Span, return_type: Ty) -> FuncSig {
+    pub fn new(params: Vec<VarDecl>, params_span: Span, return_type: Ty) -> FuncSig {
         FuncSig { params, params_span, return_type }
     }
 }
@@ -328,6 +341,13 @@ impl Ident {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Assignability {
+    Assignable,
+    NotAssignable,
+    Immutable(SymId)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprKind {
     Call(Box<Expr>, Vec<Expr>),
@@ -349,12 +369,12 @@ pub struct Expr {
     pub node: ExprKind,
     pub span: Span,
     pub ty: TypeId,
-    pub assignable: bool
+    pub assignable: Assignability
 }
 
 impl Expr {
     pub fn new(node: ExprKind, span: Span) -> Expr {
-        Expr { node, span, ty: TypeId::unknown(), assignable: false }
+        Expr { node, span, ty: TypeId::unknown(), assignable: Assignability::NotAssignable }
     }
 
     pub fn id(id: Ident) -> Expr {
@@ -458,8 +478,14 @@ impl <'a> fmt::Display for PrettyExpr<'a> {
             write!(f, " [type: {}]", PrettyType(e.ty, types))?;
         };
 
-        if e.assignable {
-            write!(f, " [assignable]")?;
+        match e.assignable {
+            Assignability::Assignable => {
+                write!(f, " [assignable]")?;
+            },
+            Assignability::NotAssignable => {},
+            Assignability::Immutable(sym) => {
+                write!(f, " [immutable {}]", sym)?;
+            }
         };
 
         match e.node {
@@ -589,7 +615,7 @@ impl <'a> fmt::Display for PrettyExpr<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StmtKind {
-    Let(Ident, Ty, Expr),
+    Let(VarDecl, Expr),
     Return(Expr),
     Assign(Expr, Expr),
     Expr(Expr)
@@ -602,8 +628,8 @@ pub struct Stmt {
 }
 
 impl Stmt {
-    pub fn let_stmt(id: Ident, ty: Ty, val: Expr, span: Span) -> Stmt {
-        Stmt { node: StmtKind::Let(id, ty, val), span }
+    pub fn let_stmt(decl: VarDecl, val: Expr, span: Span) -> Stmt {
+        Stmt { node: StmtKind::Let(decl, val), span }
     }
 
     pub fn return_stmt(val: Expr, span: Span) -> Stmt {
@@ -637,7 +663,11 @@ impl <'a> fmt::Display for PrettyStmt<'a> {
         let next_indent = &more_indent[1..];
 
         match stmt.node {
-            Let(ref id, _, _) => write!(f, "Let {}", id.id),
+            Let(ref decl, _) => if decl.mutable {
+                write!(f, "Let mut {}", decl.id.id)
+            } else {
+                write!(f, "Let {}", decl.id.id)
+            },
             Return(_) => write!(f, "Return"),
             Assign(_, _) => write!(f, "Assign"),
             Expr(_) => write!(f, "Expr")
@@ -651,10 +681,10 @@ impl <'a> fmt::Display for PrettyStmt<'a> {
         };
 
         match stmt.node {
-            Let(_, ref ty, ref val) => {
+            Let(ref decl, ref val) => {
                 if max_levels > 0 {
                     write!(f, "\n{}{}\n{}{}",
-                        next_indent, PrettyTy(ty, next_indent, types, max_levels - 1),
+                        next_indent, PrettyTy(&decl.ty, next_indent, types, max_levels - 1),
                         next_indent, PrettyExpr(val, next_indent, types, max_levels - 1)
                     )?;
                 } else {

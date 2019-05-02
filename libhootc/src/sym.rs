@@ -184,7 +184,8 @@ pub struct SymDef {
     pub node: SymDefKind,
     pub ty: TypeId,
     pub span: Span,
-    pub fn_id: Option<u32>
+    pub fn_id: Option<u32>,
+    pub mutable: bool
 }
 
 impl SymDef {
@@ -194,27 +195,30 @@ impl SymDef {
             node: SymDefKind::Function(fn_id),
             ty,
             span: id.span,
-            fn_id: parent_fn_id
+            fn_id: parent_fn_id,
+            mutable: false
         }
     }
 
-    pub fn local(id: &Ident, ty: TypeId, fn_id: u32) -> SymDef {
+    pub fn local(id: &Ident, ty: TypeId, fn_id: u32, mutable: bool) -> SymDef {
         SymDef {
             name: id.id.clone(),
             node: SymDefKind::Local,
             ty,
             span: id.span,
-            fn_id: Some(fn_id)
+            fn_id: Some(fn_id),
+            mutable
         }
     }
 
-    pub fn param(id: &Ident, ty: TypeId, param: u32, fn_id: u32) -> SymDef {
+    pub fn param(id: &Ident, ty: TypeId, param: u32, fn_id: u32, mutable: bool) -> SymDef {
         SymDef {
             name: id.id.clone(),
             node: SymDefKind::Param(param),
             ty,
             span: id.span,
-            fn_id: Some(fn_id)
+            fn_id: Some(fn_id),
+            mutable
         }
     }
 }

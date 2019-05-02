@@ -101,7 +101,7 @@ fn parse_atom_tuple_end(lexer: &mut Lexer, vals: &mut Vec<Expr>) -> Result<(), E
     Result::Ok(())
 }
 
-fn parse_lambda_params(lexer: &mut Lexer) -> Result<(Vec<(Ident, Ty)>, Span), Error> {
+fn parse_lambda_params(lexer: &mut Lexer) -> Result<(Vec<VarDecl>, Span), Error> {
     let lo = expect_token!(lexer, "'('", (Token::LPar, span) => span.lo);
 
     Result::Ok(if let Token::RPar = lexer.peek().0 {
@@ -111,6 +111,12 @@ fn parse_lambda_params(lexer: &mut Lexer) -> Result<(Vec<(Ident, Ty)>, Span), Er
         let mut params = vec![];
 
         loop {
+            let mutable = if let Token::Mut = lexer.peek().0 {
+                lexer.pop();
+                true
+            } else {
+                false
+            };
             let id = pop_ident(lexer)?;
 
             let ty = match lexer.peek().0 {
@@ -121,7 +127,7 @@ fn parse_lambda_params(lexer: &mut Lexer) -> Result<(Vec<(Ident, Ty)>, Span), Er
                 _ => Ty::infer()
             };
 
-            params.push((id, ty));
+            params.push(VarDecl::new(mutable, id, ty));
 
             match lexer.peek().0 {
                 Token::Comma => {
@@ -360,6 +366,12 @@ pub fn parse_stmt(lexer: &mut Lexer) -> Result<Stmt, Error> {
     Result::Ok(match lexer.peek().0 {
         Token::Let => {
             let lo = lexer.pop().1.lo;
+            let mutable = if let Token::Mut = lexer.peek().0 {
+                lexer.pop();
+                true
+            } else {
+                false
+            };
             let id = pop_ident(lexer)?;
 
             let ty = match lexer.peek().0 {
@@ -380,7 +392,7 @@ pub fn parse_stmt(lexer: &mut Lexer) -> Result<Stmt, Error> {
             let val = parse_expr(lexer)?;
             let hi = val.span.hi;
 
-            Stmt::let_stmt(id, ty, val, Span::from(lo, hi))
+            Stmt::let_stmt(VarDecl::new(mutable, id, ty), val, Span::from(lo, hi))
         },
         Token::Return => {
             let lo = lexer.pop().1.lo;
@@ -437,12 +449,18 @@ pub fn parse_func_sig_suffix(lexer: &mut Lexer) -> Result<FuncSig, Error> {
 
     if !matches!(lexer.peek().0, Token::RPar) {
         loop {
+            let mutable = if let Token::Mut = lexer.peek().0 {
+                lexer.pop();
+                true
+            } else {
+                false
+            };
             let id = pop_ident(lexer)?;
             expect_token!(lexer, "':'", (Token::Colon, _));
 
             let param_ty = parse_ty(lexer)?;
 
-            params.push((id, param_ty));
+            params.push(VarDecl::new(mutable, id, param_ty));
 
             if matches!(lexer.peek().0, Token::Comma) {
                 lexer.pop()

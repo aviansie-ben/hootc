@@ -498,8 +498,8 @@ fn generate_statement_il(s: &ast::Stmt, b: &mut IlBuilder, ctx: &mut IlGenContex
     log_writeln!(ctx.log, "{} <= {}", b.next_block_id(), s.pretty(ctx.types, 2));
 
     match s.node {
-        Let(ref id, _, ref val) => {
-            let reg = b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types);
+        Let(ref decl, ref val) => {
+            let reg = b.get_sym_register(decl.id.sym_id.unwrap(), ctx.syms, ctx.types);
             generate_expression_il(val, reg, b, ctx);
         },
         Return(ref val) => {
@@ -541,8 +541,8 @@ fn generate_function_il(f: &ast::Function, ctx: &mut IlGenContext) -> IlFunction
 
     log_writeln!(ctx.log, "===== GENERATING IL FOR FUNCTION {} =====\n", ctx.func);
 
-    let param_regs = f.sig.params.iter().map(|&(ref id, _)| {
-        b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types)
+    let param_regs = f.sig.params.iter().map(|decl| {
+        b.get_sym_register(decl.id.sym_id.unwrap(), ctx.syms, ctx.types)
     }).collect_vec();
     b.func.reg_map.set_params(param_regs);
 

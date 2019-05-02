@@ -43,6 +43,10 @@ fn main() {
     }
     println!();
 
+    if !errors.is_empty() {
+        return;
+    };
+
     let mut stdout = io::stdout();
     let mut log = Log(Some(&mut stdout));
 

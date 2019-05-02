@@ -4,6 +4,7 @@ use ::types::{Type, TypeId};
 
 use super::{AnalysisContext};
 use super::error::{Error, ErrorKind};
+use ast::Assignability;
 
 macro_rules! unused {
     ($var:ident) => {{
@@ -75,6 +76,15 @@ macro_rules! cannot_assign {
     ($expr:expr, $ctx:ident) => {{
         $ctx.errors.push(Error(
             ErrorKind::CannotAssignExpr,
+            $expr.span
+        ))
+    }}
+}
+
+macro_rules! cannot_assign_immutable {
+    ($expr:expr, $id:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotAssignImmutable($id),
             $expr.span
         ))
     }}
@@ -227,13 +237,19 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
             }
         },
         ExprKind::Id(ref mut id) => {
-            e.assignable = true;
             if let Some(sym_id) = ctx.sym_refs.find(&id.id) {
                 let sym = ctx.sym_defs.find(sym_id);
+
+                e.assignable = if sym.mutable {
+                    Assignability::Assignable
+                } else {
+                    Assignability::Immutable(sym_id)
+                };
 
                 id.sym_id = Some(sym_id);
                 sym.ty
             } else {
+                e.assignable = Assignability::Assignable;
                 ctx.errors.push(Error(ErrorKind::UndeclaredIdentifier(id.id.clone()), e.span));
                 TypeId::for_error()
             }
@@ -335,16 +351,16 @@ pub fn find_type(ty: &mut Ty, ctx: &mut AnalysisContext) -> TypeId {
 
 pub fn analyze_statement(s: &mut Stmt, ctx: &mut AnalysisContext) {
     match s.node {
-        StmtKind::Let(ref mut id, ref mut ty, ref mut val) => {
-            if id.sym_id.is_some() {
+        StmtKind::Let(ref mut decl, ref mut val) => {
+            if decl.id.sym_id.is_some() {
                 return;
             };
 
-            let ty = if ty.is_infer() {
+            let ty = if decl.ty.is_infer() {
                 deduce_type(val, TypeId::unknown(), ctx);
                 val.ty
             } else {
-                let ty = find_type(ty, ctx);
+                let ty = find_type(&mut decl.ty, ctx);
 
                 deduce_type(val, ty, ctx);
                 expect_type!(val, ty, ctx);
@@ -352,17 +368,22 @@ pub fn analyze_statement(s: &mut Stmt, ctx: &mut AnalysisContext) {
                 ty
             };
 
-            let sym_id = ctx.sym_defs.add_symbol(SymDef::local(id, ty, ctx.fn_id));
+            let sym_id = ctx.sym_defs.add_symbol(SymDef::local(&decl.id, ty, ctx.fn_id, decl.mutable));
 
-            ctx.sym_refs.top_mut().add(id.id.clone(), sym_id);
-            id.sym_id = Some(sym_id);
+            ctx.sym_refs.top_mut().add(decl.id.id.clone(), sym_id);
+            decl.id.sym_id = Some(sym_id);
         },
         StmtKind::Return(_) => unimplemented!(),
         StmtKind::Assign(ref mut lhs, ref mut rhs) => {
             let ty = deduce_type(lhs, TypeId::unknown(), ctx);
 
-            if !lhs.assignable {
-                cannot_assign!(lhs, ctx);
+            match lhs.assignable {
+                Assignability::Assignable => {},
+                Assignability::NotAssignable => cannot_assign!(lhs, ctx),
+                Assignability::Immutable(sym_id) => {
+                    let sym = ctx.sym_defs.find(sym_id);
+                    cannot_assign_immutable!(lhs, sym.name.clone(), ctx);
+                }
             };
 
             deduce_type(rhs, ty, ctx);
@@ -394,11 +415,13 @@ pub fn analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
 
     ctx.sym_refs.push_scope();
 
-    for (i, (ref mut id, ref ty)) in f.sig.params.iter_mut().enumerate() {
-        let sym_id = ctx.sym_defs.add_symbol(SymDef::param(id, ty.type_id, i as u32, ctx.fn_id));
+    for (i, ref mut decl) in f.sig.params.iter_mut().enumerate() {
+        let sym_id = ctx.sym_defs.add_symbol(
+            SymDef::param(&decl.id, decl.ty.type_id, i as u32, ctx.fn_id, decl.mutable)
+        );
 
-        ctx.sym_refs.top_mut().add(id.id.clone(), sym_id);
-        id.sym_id = Some(sym_id);
+        ctx.sym_refs.top_mut().add(decl.id.id.clone(), sym_id);
+        decl.id.sym_id = Some(sym_id);
     };
 
     deduce_block_type(&mut f.body, find_type(&mut f.sig.return_type, ctx), ctx);
@@ -455,8 +478,8 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
         f.id = ctx.next_fn_id;
         ctx.next_fn_id += 1;
 
-        for (_, ref mut ty) in f.sig.params.iter_mut() {
-            find_type(ty, &mut ctx);
+        for ref mut decl in f.sig.params.iter_mut() {
+            find_type(&mut decl.ty, &mut ctx);
         };
 
         find_type(&mut f.sig.return_type, &mut ctx);
@@ -465,7 +488,7 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
             &f.name,
             ctx.types.get_or_add_function_type(
                 f.sig.return_type.type_id,
-                f.sig.params.iter().map(|(_, ty)| ty.type_id).collect()
+                f.sig.params.iter().map(|decl| decl.ty.type_id).collect()
             ),
             FunctionId::UserDefined(f.id),
             None

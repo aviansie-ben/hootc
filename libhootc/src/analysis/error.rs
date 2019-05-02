@@ -12,7 +12,8 @@ pub enum ErrorKind {
     InvalidCallSignature { func_type: TypeId, arg_types: Vec<TypeId> },
     NoSuchBinOp { op: BinOp, lhs_type: TypeId, rhs_type: TypeId },
     NoSuchUnOp { op: UnOp, val_type: TypeId },
-    CannotAssignExpr
+    CannotAssignExpr,
+    CannotAssignImmutable(String)
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,9 @@ impl <'a> fmt::Display for PrettyError<'a> {
             },
             ErrorKind::CannotAssignExpr => {
                 write!(f, "cannot assign this expression")?;
+            },
+            ErrorKind::CannotAssignImmutable(ref name) => {
+                write!(f, "cannot assign to immutable variable {}", name)?;
             }
         }
 
