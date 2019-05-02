@@ -59,7 +59,7 @@ fn main() {
 
         println!("\n");
         for instr in code.instrs.iter() {
-            println!("{}", instr.node);
+            println!("{}", instr.pretty());
         };
         println!();
     };

@@ -249,7 +249,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             span
         );
 
-        log_writeln!(log, "    {}", instr.node);
+        log_writeln!(log, "    {}", instr.pretty());
         code_out.push(instr);
     }
 
@@ -294,7 +294,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             span
         );
 
-        log_writeln!(log, "    {}", instr.node);
+        log_writeln!(log, "    {}", instr.pretty());
         code_out.push(instr);
     }
 
@@ -382,7 +382,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    log_writeln!(log, "    {}", instr.node);
+                    log_writeln!(log, "    {}", instr.pretty());
                     code_out.push(instr);
                 } else {
                     assert!(self.base.try_allocate_in(virt, real));
@@ -402,7 +402,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    log_writeln!(log, "    {}", instr.node);
+                    log_writeln!(log, "    {}", instr.pretty());
                     code_out.push(instr);
 
                     self.unspill_register(virt, real, span, code_out, log);
@@ -428,7 +428,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 span
             );
 
-            log_writeln!(log, "    {}", instr.node);
+            log_writeln!(log, "    {}", instr.pretty());
             code_out.push(instr);
         } else {
             assert!(self.base.try_allocate_in(virt, real));
@@ -534,7 +534,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                         span
                     );
 
-                    log_writeln!(log, "    {}", instr.node);
+                    log_writeln!(log, "    {}", instr.pretty());
                     code_out.push(instr);
 
                     self.base.free(tmp_virt);
@@ -609,7 +609,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         let mut will_emit = true;
         let mut will_unlock = true;
 
-        log_writeln!(log, "{}", instr.node);
+        log_writeln!(log, "{}", instr.pretty());
 
         match instr.node {
             InstructionKind::RemovableNop => {
@@ -752,7 +752,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         };
 
         if will_emit {
-            log_writeln!(log, "  {}", instr.node);
+            log_writeln!(log, "  {}", instr.pretty());
             code_out.push(instr);
         };
 
@@ -791,7 +791,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             self.allocate_for_instr(instr, code_out, &mut to_free, log);
         };
 
-        log_writeln!(log, "; End of block");
+        log_writeln!(log, "# End of block");
         self.unlock_all();
         self.spill_all(IlSpanId::dummy(), code_out, log);
     }

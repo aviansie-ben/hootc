@@ -230,14 +230,19 @@ pub struct PrettySrcRegister<'a>(RegisterSize, &'a SrcRegister);
 impl <'a> fmt::Display for PrettySrcRegister<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let PrettySrcRegister(size, reg) = *self;
+        let mut needs_space = false;
 
         if reg.0 != RealRegister::None {
             write!(f, "{}", reg.0.name(size))?;
+            needs_space = true;
         };
 
         match *reg {
             SrcRegister(_, Some(virt)) => {
-                write!(f, "({})", virt)?;
+                if needs_space {
+                    write!(f, " ")?;
+                };
+                write!(f, "/* {} */", virt)?;
             },
             _ => {}
         };
@@ -269,17 +274,25 @@ pub struct PrettyDestRegister<'a>(RegisterSize, &'a DestRegister);
 impl <'a> fmt::Display for PrettyDestRegister<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let PrettyDestRegister(size, reg) = *self;
+        let mut needs_space = false;
 
         if reg.0 != RealRegister::None {
             write!(f, "{}", reg.0.name(size))?;
+            needs_space = true;
         };
 
         match *reg {
             DestRegister(_, None, Some(dest)) => {
-                write!(f, "({})", dest)?;
+                if needs_space {
+                    write!(f, " ")?;
+                };
+                write!(f, "/* {} */", dest)?;
             },
             DestRegister(_, Some(src), Some(dest)) => {
-                write!(f, "({}/{})", dest, src)?;
+                if needs_space {
+                    write!(f, " ")?;
+                };
+                write!(f, "/* {}/{} */", dest, src)?;
             },
             _ => {}
         };
@@ -319,16 +332,16 @@ impl <'a> fmt::Display for PrettyMemArg<'a> {
 
         match size {
             RegisterSize::QWord => {
-                write!(f, "qword ")?;
+                write!(f, "qword ptr ")?;
             },
             RegisterSize::DWord => {
-                write!(f, "dword ")?;
+                write!(f, "dword ptr ")?;
             },
             RegisterSize::Word => {
-                write!(f, "word ")?;
+                write!(f, "word ptr ")?;
             },
             RegisterSize::Byte => {
-                write!(f, "byte ")?;
+                write!(f, "byte ptr ")?;
             }
         };
 
@@ -802,11 +815,29 @@ impl InstructionKind {
     }
 }
 
-impl fmt::Display for InstructionKind {
+pub struct Instruction {
+    pub node: InstructionKind,
+    pub span: IlSpanId,
+    pub rc: u16
+}
+
+impl Instruction {
+    pub fn new(node: InstructionKind, span: IlSpanId) -> Instruction {
+        Instruction { node, span, rc: 0 }
+    }
+
+    pub fn pretty(&self) -> PrettyInstruction {
+        PrettyInstruction(self)
+    }
+}
+
+pub struct PrettyInstruction<'a>(&'a Instruction);
+
+impl <'a> fmt::Display for PrettyInstruction<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self.0.node {
             InstructionKind::RemovableNop => {
-                write!(f, "nop ; Removable")?;
+                write!(f, "nop # Removable")?;
             },
             InstructionKind::Label(label) => {
                 write!(f, ".{}:", label)?;
@@ -891,17 +922,5 @@ impl fmt::Display for InstructionKind {
             }
         };
         Result::Ok(())
-    }
-}
-
-pub struct Instruction {
-    pub node: InstructionKind,
-    pub span: IlSpanId,
-    pub rc: u16
-}
-
-impl Instruction {
-    pub fn new(node: InstructionKind, span: IlSpanId) -> Instruction {
-        Instruction { node, span, rc: 0 }
     }
 }

@@ -59,7 +59,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
     let old_len = ctx.code.len();
     let span = instr.span;
 
-    log_writeln!(log, "; {}", instr);
+    log_writeln!(log, "# {}", instr);
 
     match instr.node {
         Nop => {},
@@ -272,7 +272,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        log_writeln!(log, "{}", instr_out.node);
+        log_writeln!(log, "{}", instr_out.pretty());
     };
 
     log_writeln!(log);
@@ -284,7 +284,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
     let old_len = ctx.code.len();
     let span = instr.span;
 
-    log_writeln!(log, "; {}", instr);
+    log_writeln!(log, "# {}", instr);
 
     match instr.node {
         Nop => {},
@@ -349,7 +349,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        log_writeln!(log, "{}", instr_out.node);
+        log_writeln!(log, "{}", instr_out.pretty());
     };
 
     log_writeln!(log);
@@ -361,8 +361,8 @@ fn generate_code_for_block(block: &IlBlock, ctx: &mut CodeGenContext, log: &mut 
         IlSpanId::dummy()
     ));
 
-    log_writeln!(log, "; Block {}", block.id);
-    log_writeln!(log, "{}\n", ctx.code.last().unwrap().node);
+    log_writeln!(log, "# Block {}", block.id);
+    log_writeln!(log, "{}\n", ctx.code.last().unwrap().pretty());
 
     for instr in block.instrs.iter() {
         generate_code_for_instr(instr, ctx, log);
