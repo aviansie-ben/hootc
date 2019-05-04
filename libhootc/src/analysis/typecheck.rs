@@ -1,25 +1,30 @@
-use ::ast::{Block, Expr, ExprKind, Function, Import, Module, Stmt, StmtKind, Ty, TyKind};
-use ::sym::{self, FunctionId, ScopedSymRefTable, SymDef};
-use ::types::{Type, TypeId};
+use std::mem;
+
+use itertools::Itertools;
+
+use ::ast::*;
+use ::lex::Span;
+use ::sym::{self, FunctionId, ScopedSymRefTable, SymDef, SymId};
+use ::types::{PrettyType, Type, TypeId};
 
 use super::{AnalysisContext};
 use super::error::{Error, ErrorKind};
-use ast::Assignability;
-
-macro_rules! unused {
-    ($var:ident) => {{
-        let _ = $var;
-    }};
-    ($var:ident, $($rest:ident),*) => {{
-        unused!($var);
-        unused!($($rest),*);
-    }};
-}
 
 macro_rules! expect_type {
     ($expr:expr, $etype:expr, $ctx:ident) => {{
         if $expr.ty != $etype && !$expr.ty.is_error() {
             cannot_convert!($expr.span, $etype, $expr.ty, $ctx);
+            false
+        } else {
+            true
+        }
+    }}
+}
+
+macro_rules! expect_resolved_type {
+    ($expr:expr, $ctx:ident) => {{
+        if $ctx.types.is_type_undecided($expr.ty) {
+            cannot_infer_type!($expr, $ctx);
             false
         } else {
             true
@@ -90,6 +95,24 @@ macro_rules! cannot_assign_immutable {
     }}
 }
 
+macro_rules! lambda_capture_not_supported {
+    ($expr:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::LambdaCaptureNotSupported,
+            $expr.span
+        ))
+    }}
+}
+
+macro_rules! cannot_infer_type {
+    ($expr:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotInferType,
+            $expr.span
+        ))
+    }}
+}
+
 fn get_possible_call_signatures<'a, T>(
     arg_types: &[TypeId],
     sigs: impl IntoIterator<Item=(T, &'a [TypeId])>,
@@ -101,7 +124,7 @@ fn get_possible_call_signatures<'a, T>(
         };
 
         let is_valid = param_types.iter().zip(arg_types).all(|(&ptype, &atype)| {
-            ctx.types.can_trivially_convert(atype, ptype)
+            atype.is_unknown() || ptype.is_unknown() || ctx.types.can_trivially_convert(atype, ptype)
         });
 
         if is_valid {
@@ -122,12 +145,16 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
                 return TypeId::for_error();
             };
 
-            let (func_type, ret_type, param_types) = match *ctx.types.find_type(func_type) {
+            let (ret_type, mut param_types) = match *ctx.types.find_type(func_type) {
                 Type::Error => return TypeId::for_error(),
-                Type::Func(ret_type, ref param_types) => (func_type, ret_type, param_types.clone()),
+                Type::Func(ret_type, ref param_types) => (ret_type, param_types.clone()),
+                Type::FuncKnown(_, sig_id) => match *ctx.types.find_type(sig_id) {
+                    Type::Func(ret_type, ref param_types) => (ret_type, param_types.clone()),
+                    _ => unreachable!()
+                },
                 Type::Undecided(ref types) => {
                     let fn_types: Vec<_> = types.iter().filter_map(|&ty| {
-                        ctx.types.get_call_signature(ty).map(|(ret, params)| (ty, ret, params))
+                        ctx.types.get_call_signature(ty).map(|(ret, params)| (ret, params))
                     }).collect();
 
                     if fn_types.is_empty() {
@@ -137,7 +164,7 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
 
                     let possible_sigs = get_possible_call_signatures(
                         arg_types.as_ref(),
-                        fn_types.iter().map(|&(ty, ret, ref params)| ((ty, params, ret), params.as_ref())),
+                        fn_types.iter().map(|&(ret, ref params)| ((params, ret), params.as_ref())),
                         ctx
                     );
 
@@ -146,10 +173,10 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
                             invalid_call_signature!(e, func, arg_types.clone(), ctx);
                             return TypeId::for_error();
                         },
-                        &[(ty, param_tys, ret_ty)] => {
-                            (ty, ret_ty, param_tys.clone())
+                        &[(param_tys, ret_ty)] => {
+                            (ret_ty, param_tys.clone())
                         },
-                        sigs => return ctx.types.get_or_add_undecided_type(sigs.iter().map(|&(_, _, t)| t).collect())
+                        sigs => return ctx.types.get_or_add_undecided_type(sigs.iter().map(|&(_, t)| t).collect())
                     }
                 },
                 _ => {
@@ -158,17 +185,33 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
                 }
             };
 
-            assert_eq!(deduce_type(func, func_type, ctx), func_type);
+            for (arg, param_ty) in args.iter_mut().zip(&mut param_types) {
+                if param_ty.is_unknown() {
+                    *param_ty = deduce_type(arg, TypeId::unknown(), ctx);
+                };
+            };
+
+            let func_type = ctx.types.get_or_add_function_type(ret_type, param_types);
+            let func_type = deduce_type(func, func_type, ctx);
+
+            let (ret_type, param_types) = ctx.types.get_call_signature(func_type).unwrap();
 
             for (arg, &param_ty) in args.iter_mut().zip(&param_types) {
                 deduce_type(arg, param_ty, ctx);
             };
 
-            if args.iter().zip(param_types).any(|(arg, param_ty)| !ctx.types.can_trivially_convert(arg.ty, param_ty)) {
-                invalid_call_signature!(e, func, args.iter().map(|arg| arg.ty).collect(), ctx);
-            };
+            if expect_resolved_type!(func, ctx) {
+                if args.len() != param_types.len() || args.iter().zip(param_types).any(|(arg, param_ty)| !ctx.types.can_trivially_convert(arg.ty, param_ty)) {
+                    invalid_call_signature!(e, func, args.iter().map(|arg| arg.ty).collect(), ctx);
+                    if ret_type.is_unknown() {
+                        return TypeId::for_error();
+                    };
+                };
 
-            ret_type
+                ret_type
+            } else {
+                TypeId::for_error()
+            }
         },
         ExprKind::BinOp(op, box (ref mut lhs, ref mut rhs), ref mut rfunc) => {
             let val_types = [
@@ -195,8 +238,11 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
                     TypeId::for_error()
                 },
                 &[(f, param_tys, ty)] => {
-                    assert_eq!(deduce_type(lhs, param_tys[0], ctx), param_tys[0]);
-                    assert_eq!(deduce_type(rhs, param_tys[1], ctx), param_tys[1]);
+                    deduce_type(lhs, param_tys[0], ctx);
+                    deduce_type(rhs, param_tys[1], ctx);
+
+                    expect_type!(lhs, param_tys[0], ctx);
+                    expect_type!(rhs, param_tys[1], ctx);
 
                     *rfunc = Some(ctx.sym_defs.find_builtin(f, ctx.types));
 
@@ -239,6 +285,10 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
         ExprKind::Id(ref mut id) => {
             if let Some(sym_id) = ctx.sym_refs.find(&id.id) {
                 let sym = ctx.sym_defs.find(sym_id);
+
+                if sym.fn_id.is_some() && sym.fn_id != Some(ctx.fn_id) {
+                    lambda_capture_not_supported!(e, ctx);
+                };
 
                 e.assignable = if sym.mutable {
                     Assignability::Assignable
@@ -298,11 +348,55 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
 
             TypeId::for_empty_tuple()
         },
-        ExprKind::Lambda(box (ref mut sig, ref mut block)) => {
-            // TODO Implement this
-            unused!(sig, block);
-            unimplemented!()
+        ExprKind::Lambda(LambdaBody::Inline(box ref mut func)) => {
+            if func.sym_id.is_none() {
+                pre_analyze_function(func, ctx);
+            };
+
+            let mut ty = ctx.sym_defs.find(func.sym_id.unwrap()).ty;
+
+            match *ctx.types.find_type(ty) {
+                Type::FuncKnown(_, _) => {
+                    analyze_function(func, ctx);
+                    ty = ctx.sym_defs.find(func.sym_id.unwrap()).ty;
+                },
+                Type::Func(ret_type, ref param_types) => {
+                    if param_types.iter().all(|&pt| !ctx.types.is_type_undecided(pt)) {
+                        analyze_function(func, ctx);
+                        ty = ctx.sym_defs.find(func.sym_id.unwrap()).ty;
+                    } else if !expected_ty.is_unknown() {
+                        if let Type::Func(_, ref actual_param_types) = ctx.types.find_type(expected_ty) {
+                            if param_types.len() == actual_param_types.len() {
+                                let param_types = param_types.clone();
+                                let actual_param_types = actual_param_types.clone();
+
+                                let param_types = param_types.into_iter().zip(actual_param_types.into_iter()).map(|(e, a)| ctx.types.least_upper_bound(e, a).unwrap_or(TypeId::unknown())).collect_vec();
+
+                                let done = param_types.iter().all(|&pt| !ctx.types.is_type_undecided(pt));
+
+                                for (&ty, param) in param_types.iter().zip(func.sig.params.iter_mut()) {
+                                    param.ty.type_id = ty;
+                                };
+
+                                ty = ctx.sym_defs.narrow_known_function_type(
+                                    func.sym_id.unwrap(),
+                                    ctx.types.get_or_add_function_type(ret_type, param_types),
+                                    ctx.types
+                                );
+
+                                if done {
+                                    analyze_function(func, ctx);
+                                    ty = ctx.sym_defs.find(func.sym_id.unwrap()).ty;
+                                };
+                            };
+                        };
+                    };
+                },
+                _ => unreachable!()
+            };
+            ty
         },
+        ExprKind::Lambda(LambdaBody::Lifted(_)) => unreachable!(),
         ExprKind::Int(_) => {
             // TODO Implement multiple int types
             TypeId::for_i32()
@@ -334,7 +428,7 @@ fn find_type_internal(ty: &mut Ty, ctx: &mut AnalysisContext) -> TypeId {
             ctx.types.get_or_add_tuple_type(types)
         },
         TyKind::Ref(_) => unimplemented!(),
-        TyKind::Infer => unreachable!()
+        TyKind::Infer => TypeId::unknown()
     }
 }
 
@@ -358,7 +452,11 @@ pub fn analyze_statement(s: &mut Stmt, ctx: &mut AnalysisContext) {
 
             let ty = if decl.ty.is_infer() {
                 deduce_type(val, TypeId::unknown(), ctx);
-                val.ty
+                if expect_resolved_type!(val, ctx) {
+                    val.ty
+                } else {
+                    TypeId::for_error()
+                }
             } else {
                 let ty = find_type(&mut decl.ty, ctx);
 
@@ -391,6 +489,7 @@ pub fn analyze_statement(s: &mut Stmt, ctx: &mut AnalysisContext) {
         },
         StmtKind::Expr(ref mut expr) => {
             deduce_type(expr, TypeId::unknown(), ctx);
+            expect_resolved_type!(expr, ctx);
         }
     }
 }
@@ -424,10 +523,58 @@ pub fn analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
         decl.id.sym_id = Some(sym_id);
     };
 
-    deduce_block_type(&mut f.body, find_type(&mut f.sig.return_type, ctx), ctx);
+    let ty = deduce_block_type(&mut f.body, find_type(&mut f.sig.return_type, ctx), ctx);
+
+    if f.sig.return_type.is_infer() {
+        f.sig.return_type.type_id = ty;
+    };
+
+    let expected_ty = f.sig.return_type.type_id;
+
+    if let Some(ref result) = f.body.result {
+        expect_type!(result, f.sig.return_type.type_id, ctx);
+    } else if expected_ty != TypeId::for_error() && expected_ty != TypeId::for_empty_tuple() {
+        ctx.errors.push(Error(
+            ErrorKind::CannotConvert { actual: TypeId::for_empty_tuple(), expected: expected_ty },
+            f.body.span
+        ));
+    };
+
+    ctx.sym_defs.narrow_known_function_type(
+        f.sym_id.unwrap(),
+        ctx.types.get_or_add_function_type(
+            f.sig.return_type.type_id,
+            f.sig.params.iter().map(|decl| decl.ty.type_id).collect()
+        ),
+        ctx.types
+    );
 
     ctx.sym_refs.pop_scope();
     ctx.fn_id = old_fn_id;
+}
+
+pub fn pre_analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
+    f.id = ctx.next_fn_id;
+    ctx.next_fn_id += 1;
+
+    for ref mut decl in f.sig.params.iter_mut() {
+        find_type(&mut decl.ty, ctx);
+    };
+
+    find_type(&mut f.sig.return_type, ctx);
+
+    let sym_id = ctx.sym_defs.add_known_function_symbol(SymDef::func(
+        &f.name,
+        ctx.types.get_or_add_function_type(
+            f.sig.return_type.type_id,
+            f.sig.params.iter().map(|decl| decl.ty.type_id).collect()
+        ),
+        FunctionId::UserDefined(f.id),
+        None
+    ), ctx.types);
+    ctx.sym_refs.top_mut().add(f.name.id.clone(), sym_id);
+
+    f.sym_id = Some(sym_id);
 }
 
 pub fn analyze_import(i: &mut Import, ctx: &mut AnalysisContext) {
@@ -435,27 +582,103 @@ pub fn analyze_import(i: &mut Import, ctx: &mut AnalysisContext) {
     if let Some(ref path) = i.path {
         if path.parts.len() == 1 && path.parts[0].id == "std" {
             for part in i.parts.iter_mut() {
-                let sym_def = match part.id.id.as_ref() {
-                    "print_i32" => SymDef::func(
-                        &part.id,
-                        ctx.types.get_or_add_function_type(
-                            TypeId::for_empty_tuple(),
-                            vec![TypeId::for_i32()]
-                        ),
-                        FunctionId::PrintI32,
-                        None
-                    ),
+                let sym_id = match part.id.id.as_ref() {
+                    "print_i32" => ctx.sym_defs.find_builtin(&FunctionId::PrintI32, ctx.types),
                     _ => unimplemented!()
                 };
-                let sym_id = ctx.sym_defs.add_symbol(sym_def);
                 ctx.sym_refs.top_mut().add(part.as_id.as_ref().unwrap_or(&part.id).id.clone(), sym_id);
             };
         } else {
             unimplemented!();
-        }
+        };
     } else {
         unimplemented!();
     };
+}
+
+pub fn lift_from_expr(expr: &mut Expr, ctx: &mut AnalysisContext, lifted: &mut Vec<Function>) {
+    match expr.node {
+        ExprKind::Call(box ref mut func, ref mut args) => {
+            lift_from_expr(func, ctx, lifted);
+            for arg in args.iter_mut() {
+                lift_from_expr(arg, ctx, lifted);
+            };
+        },
+        ExprKind::BinOp(_, box (ref mut lhs, ref mut rhs), _) => {
+            lift_from_expr(lhs, ctx, lifted);
+            lift_from_expr(rhs, ctx, lifted);
+        },
+        ExprKind::UnOp(_, box ref mut val, _) => {
+            lift_from_expr(val, ctx, lifted);
+        },
+        ExprKind::Id(_) => {},
+        ExprKind::Block(box ref mut block) => {
+            lift_from_block(block, ctx, lifted);
+        },
+        ExprKind::Tuple(ref mut vals) => {
+            for val in vals.iter_mut() {
+                lift_from_expr(val, ctx, lifted);
+            };
+        },
+        ExprKind::Paren(box ref mut val) => {
+            lift_from_expr(val, ctx, lifted);
+        },
+        ExprKind::If(box (ref mut cond, ref mut true_block, ref mut false_block)) => {
+            lift_from_expr(cond, ctx, lifted);
+            lift_from_block(true_block, ctx, lifted);
+            if let Some(ref mut false_block) = false_block {
+                lift_from_block(false_block, ctx, lifted);
+            };
+        },
+        ExprKind::While(box (ref mut cond, ref mut do_block)) => {
+            lift_from_expr(cond, ctx, lifted);
+            lift_from_block(do_block, ctx, lifted);
+        },
+        ExprKind::Lambda(ref mut body) => {
+            if let LambdaBody::Inline(box mut func) = mem::replace(body, LambdaBody::Lifted(SymId(!0))) {
+                *body = LambdaBody::Lifted(func.sym_id.unwrap());
+
+                lift_from_function(&mut func, ctx, lifted);
+                lifted.push(func);
+            } else {
+                unreachable!();
+            };
+        },
+        ExprKind::Int(_) => {},
+        ExprKind::Bool(_) => {}
+    };
+}
+
+pub fn lift_from_stmt(stmt: &mut Stmt, ctx: &mut AnalysisContext, lifted: &mut Vec<Function>) {
+    match stmt.node {
+        StmtKind::Let(_, ref mut val) => {
+            lift_from_expr(val, ctx, lifted);
+        },
+        StmtKind::Return(ref mut val) => {
+            lift_from_expr(val, ctx, lifted);
+        },
+        StmtKind::Assign(ref mut lhs, ref mut rhs) => {
+            lift_from_expr(lhs, ctx, lifted);
+            lift_from_expr(rhs, ctx, lifted);
+        },
+        StmtKind::Expr(ref mut val) => {
+            lift_from_expr(val, ctx, lifted);
+        }
+    };
+}
+
+pub fn lift_from_block(b: &mut Block, ctx: &mut AnalysisContext, lifted: &mut Vec<Function>) {
+    for stmt in b.stmts.iter_mut() {
+        lift_from_stmt(stmt, ctx, lifted);
+    };
+
+    if let Some(ref mut result) = b.result {
+        lift_from_expr(result, ctx, lifted);
+    };
+}
+
+pub fn lift_from_function(f: &mut Function, ctx: &mut AnalysisContext, lifted: &mut Vec<Function>) {
+    lift_from_block(&mut f.body, ctx, lifted);
 }
 
 pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
@@ -475,31 +698,12 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
     };
 
     for f in m.funcs.iter_mut() {
-        f.id = ctx.next_fn_id;
-        ctx.next_fn_id += 1;
-
-        for ref mut decl in f.sig.params.iter_mut() {
-            find_type(&mut decl.ty, &mut ctx);
-        };
-
-        find_type(&mut f.sig.return_type, &mut ctx);
-
-        let sym_id = ctx.sym_defs.add_symbol(SymDef::func(
-            &f.name,
-            ctx.types.get_or_add_function_type(
-                f.sig.return_type.type_id,
-                f.sig.params.iter().map(|decl| decl.ty.type_id).collect()
-            ),
-            FunctionId::UserDefined(f.id),
-            None
-        ));
-        ctx.sym_refs.top_mut().add(f.name.id.clone(), sym_id);
-
-        f.sym_id = Some(sym_id);
+        pre_analyze_function(f, &mut ctx);
     };
 
     for f in m.funcs.iter_mut() {
         analyze_function(f, &mut ctx);
+        lift_from_function(f, &mut ctx, &mut m.lifted);
     };
 
     ctx.sym_refs.pop_scope();

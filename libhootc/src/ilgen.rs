@@ -20,6 +20,7 @@ pub fn map_to_il_type(ty: TypeId, types: &TypeTable) -> IlType {
             _ => unimplemented!()
         },
         Type::Func(_, _) => IlType::Addr,
+        Type::FuncKnown(_, _) => IlType::Void,
         Type::Undecided(_) => unreachable!()
     }
 }
@@ -336,10 +337,11 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
 
     match e.node {
         Call(box ref func, ref args) => {
-            match func.node {
-                Id(ref id) => {
+            match *ctx.types.find_type(func.ty) {
+                Type::FuncKnown(id, _) => {
+                    generate_expression_il_to_temp(func, b, ctx);
                     generate_direct_call_il(
-                        id.sym_id.unwrap(),
+                        id,
                         args,
                         e.span,
                         tgt,
@@ -347,8 +349,9 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
                         ctx
                     );
                 },
-                _ => unimplemented!()
-            };
+                Type::Func(_, _) => unimplemented!(),
+                _ => unreachable!()
+            }
         },
         BinOp(_, box (ref lhs, ref rhs), func) => {
             generate_direct_call_il(
@@ -371,8 +374,10 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
             );
         },
         Id(ref id) => {
-            let reg = b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types);
-            b.append_instruction(IlInstructionKind::Copy(tgt, IlOperand::Register(reg)), e.span);
+            if map_to_il_type(e.ty, ctx.types) != IlType::Void {
+                let reg = b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types);
+                b.append_instruction(IlInstructionKind::Copy(tgt, IlOperand::Register(reg)), e.span);
+            };
         },
         Block(box ref block) => {
             generate_block_il(block, tgt, b, ctx);
@@ -438,7 +443,10 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
 
             b.relink_block_target(icond_block, b.next_block_id());
         },
-        Lambda(_) => unimplemented!(),
+        Lambda(ast::LambdaBody::Lifted(_)) => {
+            // Intentionally generate no code, since lambdas are currently represented as IlType::Void
+        },
+        Lambda(ast::LambdaBody::Inline(_)) => unreachable!(),
         Int(val) => {
             match ctx.types.find_type(e.ty) {
                 Type::I32 => b.append_instruction(
@@ -484,12 +492,16 @@ fn generate_expression_store(e: &ast::Expr, reg: IlRegister, b: &mut IlBuilder, 
 
     log_writeln!(ctx.log, "{} <= {} -> {}", b.next_block_id(), reg, e.pretty(ctx.types, 2));
 
+    if map_to_il_type(e.ty, ctx.types) == IlType::Void {
+        return;
+    };
+
     match e.node {
         Id(ref id) => {
             assert_eq!(reg, b.get_sym_register(id.sym_id.unwrap(), ctx.syms, ctx.types));
         },
         _ => unreachable!()
-    }
+    };
 }
 
 fn generate_statement_il(s: &ast::Stmt, b: &mut IlBuilder, ctx: &mut IlGenContext) {
@@ -580,6 +592,13 @@ pub fn generate_il(m: &ast::Module, log: &mut Log) -> IlProgram {
     log_writeln!(ctx.log, "===== IL GENERATION =====\n");
 
     for f in m.funcs.iter() {
+        program.funcs.insert(
+            f.sym_id.unwrap(),
+            generate_function_il(f, &mut ctx)
+        );
+    };
+
+    for f in m.lifted.iter() {
         program.funcs.insert(
             f.sym_id.unwrap(),
             generate_function_il(f, &mut ctx)

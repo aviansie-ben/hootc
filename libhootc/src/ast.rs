@@ -9,6 +9,7 @@ use types::{PrettyType, TypeId, TypeTable};
 pub struct Module {
     pub imports: Vec<Import>,
     pub funcs: Vec<Function>,
+    pub lifted: Vec<Function>,
     pub exports: HashMap<String, SymId>,
     pub types: TypeTable,
     pub syms: SymDefTable
@@ -19,6 +20,7 @@ impl Module {
         Module {
             imports: vec![],
             funcs: vec![],
+            lifted: vec![],
             exports: HashMap::new(),
             types: TypeTable::new(),
             syms: SymDefTable::new()
@@ -349,6 +351,12 @@ pub enum Assignability {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LambdaBody {
+    Inline(Box<Function>),
+    Lifted(SymId)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprKind {
     Call(Box<Expr>, Vec<Expr>),
     BinOp(BinOp, Box<(Expr, Expr)>, Option<SymId>),
@@ -359,7 +367,7 @@ pub enum ExprKind {
     Paren(Box<Expr>),
     If(Box<(Expr, Block, Option<Block>)>),
     While(Box<(Expr, Block)>),
-    Lambda(Box<(FuncSig, Block)>),
+    Lambda(LambdaBody),
     Int(u128),
     Bool(bool)
 }
@@ -425,7 +433,12 @@ impl Expr {
     }
 
     pub fn lambda(sig: FuncSig, body: Block, span: Span) -> Expr {
-        Expr::new(ExprKind::Lambda(Box::new((sig, body))), span)
+        Expr::new(
+            ExprKind::Lambda(LambdaBody::Inline(
+                Box::new(Function::new(Ident::new("<lambda>".into(), span), sig, body))
+            )),
+            span
+        )
     }
 
     pub fn wrap_in_block(self) -> Block {
@@ -604,7 +617,16 @@ impl <'a> fmt::Display for PrettyExpr<'a> {
                     write!(f, "\n{}...", next_indent)?;
                 };
             },
-            Lambda(_) => unimplemented!(),
+            Lambda(ref body) => {
+                match *body {
+                    LambdaBody::Inline(_) => {
+                        write!(f, "\n{}...", next_indent)?;
+                    },
+                    LambdaBody::Lifted(sym_id) => {
+                        write!(f, " [sym: {}]", sym_id)?;
+                    }
+                };
+            },
             Int(_) => {},
             Bool(_) => {}
         };

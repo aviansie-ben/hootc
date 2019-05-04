@@ -13,7 +13,9 @@ pub enum ErrorKind {
     NoSuchBinOp { op: BinOp, lhs_type: TypeId, rhs_type: TypeId },
     NoSuchUnOp { op: UnOp, val_type: TypeId },
     CannotAssignExpr,
-    CannotAssignImmutable(String)
+    CannotAssignImmutable(String),
+    LambdaCaptureNotSupported,
+    CannotInferType
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +73,12 @@ impl <'a> fmt::Display for PrettyError<'a> {
             },
             ErrorKind::CannotAssignImmutable(ref name) => {
                 write!(f, "cannot assign to immutable variable {}", name)?;
+            },
+            ErrorKind::LambdaCaptureNotSupported => {
+                write!(f, "lambda capture is not yet supported")?;
+            },
+            ErrorKind::CannotInferType => {
+                write!(f, "unable to infer the type of this expression")?;
             }
         }
 

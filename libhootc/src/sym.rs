@@ -4,7 +4,7 @@ use std::u32;
 
 use ast::{BinOp, Ident, UnOp};
 use lex::Span;
-use types::{TypeId, TypeTable};
+use types::{Type, TypeId, TypeTable};
 
 lazy_static! {
     pub static ref BUILTIN_BINARY_OPS: HashMap<BinOp, Vec<(FunctionId, [TypeId; 2], TypeId)>> = {
@@ -243,12 +243,12 @@ impl SymDefTable {
                 ret,
                 params.clone()
             );
-            let id = self.add_symbol(SymDef::func(
+            let id = self.add_known_function_symbol(SymDef::func(
                 &Ident::new(f.builtin_name().unwrap().to_owned(), Span::dummy()),
                 ft,
                 f.clone(),
                 None
-            ));
+            ), t);
 
             self.builtins.insert(f.clone(), id);
             id
@@ -267,6 +267,36 @@ impl SymDefTable {
         self.defs.push(def);
         assert!(self.defs.len() < u32::MAX as usize);
         SymId((self.defs.len() - 1) as u32)
+    }
+
+    pub fn add_known_function_symbol(&mut self, mut def: SymDef, t: &mut TypeTable) -> SymId {
+        let id = SymId(self.defs.len() as u32);
+
+        if !t.is_type_undecided(def.ty) {
+            def.ty = t.add_type(Type::FuncKnown(id, def.ty));
+        };
+
+        self.defs.push(def);
+        assert!(self.defs.len() < u32::MAX as usize);
+        id
+    }
+
+    pub fn narrow_known_function_type(&mut self, id: SymId, sig: TypeId, t: &mut TypeTable) -> TypeId {
+        let def = self.find_mut(id);
+
+        match *t.find_type(def.ty) {
+            Type::FuncKnown(_, prev_sig) => assert_eq!(sig, prev_sig),
+            Type::Func(_, _) => {},
+            _ => unreachable!()
+        };
+
+        def.ty = if t.is_type_undecided(sig) {
+            sig
+        } else {
+            t.add_type(Type::FuncKnown(id, sig))
+        };
+
+        def.ty
     }
 
     pub fn all_symbols(&self) -> impl Iterator<Item=(SymId, &SymDef)> {

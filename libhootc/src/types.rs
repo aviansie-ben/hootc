@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::u32;
 
+use crate::sym::SymId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
@@ -24,6 +26,7 @@ pub enum Type {
     I32,
     Tuple(Vec<TypeId>),
     Func(TypeId, Vec<TypeId>),
+    FuncKnown(SymId, TypeId),
     Undecided(Vec<TypeId>)
 }
 
@@ -60,6 +63,27 @@ impl <'a> fmt::Display for PrettyType<'a> {
                 },
                 Type::Func(ret_type, ref arg_types) => {
                     write!(f, "fn (")?;
+
+                    match &arg_types[..] {
+                        [ head, tail.. ] => {
+                            write!(f, "{}", PrettyType(*head, table))?;
+                            for t in tail {
+                                write!(f, ", {}", PrettyType(*t, table))?;
+                            };
+                        },
+                        [] => {}
+                    };
+
+                    write!(f, ") : {}", PrettyType(ret_type, table))?;
+                },
+                Type::FuncKnown(sym_id, sig_id) => {
+                    let (ret_type, arg_types) = if let Type::Func(ret_type, ref arg_types) = *table.find_type(sig_id) {
+                        (ret_type, arg_types)
+                    } else {
+                        unreachable!();
+                    };
+
+                    write!(f, "fn {}(", sym_id)?;
 
                     match &arg_types[..] {
                         [ head, tail.. ] => {
@@ -163,6 +187,7 @@ impl TypeTable {
         match self.types[id.0 as usize] {
             Type::Tuple(ref ts) => ts.iter().any(|&t| self.is_type_undecided(t)),
             Type::Undecided(_) => true,
+            Type::Func(ret, ref params) => self.is_type_undecided(ret) || params.iter().any(|&p| self.is_type_undecided(p)),
             _ => false
         }
     }
@@ -171,6 +196,7 @@ impl TypeTable {
         assert!(!id.is_unknown());
         match self.types[id.0 as usize] {
             Type::Func(ret, ref params) => Some((ret, params.clone())),
+            Type::FuncKnown(_, sig_id) => self.get_call_signature(sig_id),
             _ => None
         }
     }
@@ -190,7 +216,15 @@ impl TypeTable {
     }
 
     pub fn least_upper_bound(&mut self, a: TypeId, b: TypeId) -> Option<TypeId> {
-        assert!(!a.is_unknown() && !b.is_unknown());
+        if a.is_unknown() {
+            if b.is_unknown() {
+                return None;
+            } else {
+                return Some(b);
+            };
+        } else if b.is_unknown() {
+            return Some(a);
+        };
 
         if a.is_error() || b.is_error() {
             return Some(TypeId::for_error());
