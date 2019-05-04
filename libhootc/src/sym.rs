@@ -285,7 +285,10 @@ impl SymDefTable {
         let def = self.find_mut(id);
 
         match *t.find_type(def.ty) {
-            Type::FuncKnown(_, prev_sig) => assert_eq!(sig, prev_sig),
+            Type::FuncKnown(_, prev_sig) => {
+                assert_eq!(sig, prev_sig);
+                return def.ty;
+            },
             Type::Func(_, _) => {},
             _ => unreachable!()
         };
