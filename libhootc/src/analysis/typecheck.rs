@@ -418,10 +418,11 @@ pub fn deduce_type(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisContext)
 
 fn find_type_internal(ty: &mut Ty, ctx: &mut AnalysisContext) -> TypeId {
     match ty.node {
-        TyKind::Ident(ref name) => match name.as_ref() {
-            "i32" => TypeId::for_i32(),
-            "bool" => TypeId::for_bool(),
-            _ => unimplemented!()
+        TyKind::Ident(ref name) => if let Some(ty) = ctx.sym_refs.find_type(name) {
+            ty
+        } else {
+            ctx.errors.push(Error(ErrorKind::UndeclaredType(name.to_owned()), ty.span));
+            TypeId::for_error()
         },
         TyKind::Tuple(ref mut types) => {
             let types: Vec<_> = types.iter_mut().map(|ty| find_type(ty, ctx)).collect();
@@ -557,7 +558,7 @@ pub fn pre_analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
     f.id = ctx.next_fn_id;
     ctx.next_fn_id += 1;
 
-    for ref mut decl in f.sig.params.iter_mut() {
+    for decl in f.sig.params.iter_mut() {
         find_type(&mut decl.ty, ctx);
     };
 
@@ -681,6 +682,11 @@ pub fn lift_from_function(f: &mut Function, ctx: &mut AnalysisContext, lifted: &
     lift_from_block(&mut f.body, ctx, lifted);
 }
 
+fn add_builtins(ctx: &mut AnalysisContext) {
+    ctx.sym_refs.top_mut().add_type("i32".to_owned(), TypeId::for_i32());
+    ctx.sym_refs.top_mut().add_type("bool".to_owned(), TypeId::for_bool());
+}
+
 pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
     let mut ctx = AnalysisContext {
         types: &mut m.types,
@@ -692,6 +698,7 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
     };
 
     ctx.sym_refs.push_scope();
+    add_builtins(&mut ctx);
 
     for i in m.imports.iter_mut() {
         analyze_import(i, &mut ctx);

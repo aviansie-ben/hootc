@@ -313,12 +313,13 @@ impl Default for SymDefTable {
 #[derive(Debug, Clone)]
 pub struct SymRefTable {
     refs: HashMap<String, SymId>,
-    all_refs: Vec<SymId>
+    all_refs: Vec<SymId>,
+    types: HashMap<String, TypeId>
 }
 
 impl SymRefTable {
     pub fn new() -> SymRefTable {
-        SymRefTable { refs: HashMap::new(), all_refs: vec![] }
+        SymRefTable { refs: HashMap::new(), all_refs: vec![], types: HashMap::new() }
     }
 
     pub fn find(&self, name: &str) -> Option<SymId> {
@@ -328,6 +329,14 @@ impl SymRefTable {
     pub fn add(&mut self, name: String, id: SymId) {
         self.refs.insert(name, id);
         self.all_refs.push(id);
+    }
+
+    pub fn find_type(&self, name: &str) -> Option<TypeId> {
+        self.types.get(name).cloned()
+    }
+
+    pub fn add_type(&mut self, name: String, id: TypeId) {
+        self.types.insert(name, id);
     }
 }
 
@@ -371,6 +380,15 @@ impl ScopedSymRefTable {
         for table in self.tables.iter().rev() {
             if let Some(sym) = table.find(name) {
                 return Some(sym);
+            };
+        };
+        None
+    }
+
+    pub fn find_type(&self, name: &str) -> Option<TypeId> {
+        for table in self.tables.iter().rev() {
+            if let Some(t) = table.find_type(name) {
+                return Some(t);
             };
         };
         None

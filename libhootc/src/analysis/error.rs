@@ -8,6 +8,7 @@ use ::types::{PrettyType, TypeTable, TypeId};
 pub enum ErrorKind {
     CannotConvert { expected: TypeId, actual: TypeId },
     UndeclaredIdentifier(String),
+    UndeclaredType(String),
     CannotCallType(TypeId),
     InvalidCallSignature { func_type: TypeId, arg_types: Vec<TypeId> },
     NoSuchBinOp { op: BinOp, lhs_type: TypeId, rhs_type: TypeId },
@@ -38,6 +39,9 @@ impl <'a> fmt::Display for PrettyError<'a> {
             },
             ErrorKind::UndeclaredIdentifier(ref name) => {
                 write!(f, "no identifier {} declared in this scope", name)?;
+            },
+            ErrorKind::UndeclaredType(ref name) => {
+                write!(f, "no type {} declared in this scope", name)?;
             },
             ErrorKind::CannotCallType(ty) => {
                 write!(f, "cannot call a value of type {}", PrettyType(ty, type_table))?;
