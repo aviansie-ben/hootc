@@ -710,8 +710,15 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
 
     for f in m.funcs.iter_mut() {
         analyze_function(f, &mut ctx);
-        lift_from_function(f, &mut ctx, &mut m.lifted);
     };
+
+    let mut lifted = vec![];
+
+    for f in m.funcs.iter_mut() {
+        lift_from_function(f, &mut ctx, &mut lifted);
+    };
+
+    m.funcs.append(&mut lifted);
 
     ctx.sym_refs.pop_scope();
 }

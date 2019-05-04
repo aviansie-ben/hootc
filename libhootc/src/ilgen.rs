@@ -598,12 +598,5 @@ pub fn generate_il(m: &ast::Module, log: &mut Log) -> IlProgram {
         );
     };
 
-    for f in m.lifted.iter() {
-        program.funcs.insert(
-            f.sym_id.unwrap(),
-            generate_function_il(f, &mut ctx)
-        );
-    };
-
     program
 }

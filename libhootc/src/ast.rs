@@ -9,7 +9,6 @@ use types::{PrettyType, TypeId, TypeTable};
 pub struct Module {
     pub imports: Vec<Import>,
     pub funcs: Vec<Function>,
-    pub lifted: Vec<Function>,
     pub exports: HashMap<String, SymId>,
     pub types: TypeTable,
     pub syms: SymDefTable
@@ -20,7 +19,6 @@ impl Module {
         Module {
             imports: vec![],
             funcs: vec![],
-            lifted: vec![],
             exports: HashMap::new(),
             types: TypeTable::new(),
             syms: SymDefTable::new()
