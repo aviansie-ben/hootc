@@ -93,7 +93,7 @@ impl fmt::Display for SymId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FunctionId {
-    UserDefined(u32),
+    UserDefined(SymId),
     External(String),
     PrintI32,
     AddI32,
@@ -141,7 +141,7 @@ impl fmt::Display for FunctionId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FunctionId::*;
         match *self {
-            UserDefined(id) => write!(f, "<func {}>", id),
+            UserDefined(sym_id) => write!(f, "<func {}>", sym_id),
             External(ref name) => write!(f, "<extern func {}>", name),
             PrintI32 => write!(f, "<builtin print(i32)>"),
             AddI32 => write!(f, "<builtin +(i32, i32)>"),
@@ -184,40 +184,40 @@ pub struct SymDef {
     pub node: SymDefKind,
     pub ty: TypeId,
     pub span: Span,
-    pub fn_id: Option<u32>,
+    pub fn_sym: Option<SymId>,
     pub mutable: bool
 }
 
 impl SymDef {
-    pub fn func(id: &Ident, ty: TypeId, fn_id: FunctionId, parent_fn_id: Option<u32>) -> SymDef {
+    pub fn func(id: &Ident, ty: TypeId, func: FunctionId, parent_fn_sym: Option<SymId>) -> SymDef {
         SymDef {
             name: id.id.clone(),
-            node: SymDefKind::Function(fn_id),
+            node: SymDefKind::Function(func),
             ty,
             span: id.span,
-            fn_id: parent_fn_id,
+            fn_sym: parent_fn_sym,
             mutable: false
         }
     }
 
-    pub fn local(id: &Ident, ty: TypeId, fn_id: u32, mutable: bool) -> SymDef {
+    pub fn local(id: &Ident, ty: TypeId, fn_sym: SymId, mutable: bool) -> SymDef {
         SymDef {
             name: id.id.clone(),
             node: SymDefKind::Local,
             ty,
             span: id.span,
-            fn_id: Some(fn_id),
+            fn_sym: Some(fn_sym),
             mutable
         }
     }
 
-    pub fn param(id: &Ident, ty: TypeId, param: u32, fn_id: u32, mutable: bool) -> SymDef {
+    pub fn param(id: &Ident, ty: TypeId, param: u32, fn_sym: SymId, mutable: bool) -> SymDef {
         SymDef {
             name: id.id.clone(),
             node: SymDefKind::Param(param),
             ty,
             span: id.span,
-            fn_id: Some(fn_id),
+            fn_sym: Some(fn_sym),
             mutable
         }
     }
@@ -264,20 +264,26 @@ impl SymDefTable {
     }
 
     pub fn add_symbol(&mut self, def: SymDef) -> SymId {
-        self.defs.push(def);
         assert!(self.defs.len() < u32::MAX as usize);
-        SymId((self.defs.len() - 1) as u32)
+        let id = SymId(self.defs.len() as u32);
+
+        self.defs.push(def);
+
+        id
     }
 
     pub fn add_known_function_symbol(&mut self, mut def: SymDef, t: &mut TypeTable) -> SymId {
+        assert!(self.defs.len() < u32::MAX as usize);
         let id = SymId(self.defs.len() as u32);
 
+        if let SymDefKind::Function(FunctionId::UserDefined(ref mut fn_sym_id)) = def.node {
+            *fn_sym_id = id;
+        };
         if !t.is_type_undecided(def.ty) {
             def.ty = t.add_type(Type::FuncKnown(id, def.ty));
         };
-
         self.defs.push(def);
-        assert!(self.defs.len() < u32::MAX as usize);
+
         id
     }
 

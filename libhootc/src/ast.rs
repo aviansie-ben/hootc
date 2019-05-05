@@ -200,13 +200,12 @@ pub struct Function {
     pub name: Ident,
     pub sig: FuncSig,
     pub body: Block,
-    pub sym_id: Option<SymId>,
-    pub id: u32
+    pub sym_id: Option<SymId>
 }
 
 impl Function {
     pub fn new(name: Ident, sig: FuncSig, body: Block) -> Function {
-        Function { name, sig, body, sym_id: None, id: !0 }
+        Function { name, sig, body, sym_id: None }
     }
 }
 

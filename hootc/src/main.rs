@@ -4,7 +4,6 @@ use std::io::{self, Read};
 
 use lib::analysis::error::PrettyError;
 use lib::analysis::typecheck::analyze_module;
-use lib::sym::SymId;
 use lib::lex::Lexer;
 use lib::log::Log;
 use lib::parse::parse_module;
@@ -33,11 +32,11 @@ fn main() {
     println!();
 
     println!("## SYMBOL DEFINITION TABLE ##");
-    for (SymId(i), sym) in module.syms.all_symbols() {
-        if let Some(fn_id) = sym.fn_id {
-            print!("  [{}/{}]: ", fn_id, i);
+    for (sym_id, sym) in module.syms.all_symbols() {
+        if let Some(fn_sym) = sym.fn_sym {
+            print!("  [{}/{}]: ", fn_sym, sym_id);
         } else {
-            print!("  [global/{}]: ", i);
+            print!("  [global/{}]: ", sym_id);
         };
         println!("{} {} {}", sym.name, sym.node, PrettyType(sym.ty, &module.types));
     }

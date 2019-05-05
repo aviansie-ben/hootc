@@ -1,4 +1,4 @@
-use ::sym::{SymDefTable, ScopedSymRefTable};
+use ::sym::{SymDefTable, SymId, ScopedSymRefTable};
 use ::types::TypeTable;
 
 pub mod error;
@@ -9,6 +9,5 @@ pub struct AnalysisContext<'a> {
     pub sym_defs: &'a mut SymDefTable,
     pub sym_refs: ScopedSymRefTable,
     pub errors: &'a mut Vec<error::Error>,
-    pub fn_id: u32,
-    pub next_fn_id: u32
+    pub fn_sym: SymId
 }

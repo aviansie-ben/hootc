@@ -3,9 +3,8 @@ use std::mem;
 use itertools::Itertools;
 
 use ::ast::*;
-use ::lex::Span;
 use ::sym::{self, FunctionId, ScopedSymRefTable, SymDef, SymId};
-use ::types::{PrettyType, Type, TypeId};
+use ::types::{Type, TypeId};
 
 use super::{AnalysisContext};
 use super::error::{Error, ErrorKind};
@@ -286,7 +285,7 @@ fn deduce_type_internal(e: &mut Expr, expected_ty: TypeId, ctx: &mut AnalysisCon
             if let Some(sym_id) = ctx.sym_refs.find(&id.id) {
                 let sym = ctx.sym_defs.find(sym_id);
 
-                if sym.fn_id.is_some() && sym.fn_id != Some(ctx.fn_id) {
+                if sym.fn_sym.is_some() && sym.fn_sym != Some(ctx.fn_sym) {
                     lambda_capture_not_supported!(e, ctx);
                 };
 
@@ -467,7 +466,7 @@ pub fn analyze_statement(s: &mut Stmt, ctx: &mut AnalysisContext) {
                 ty
             };
 
-            let sym_id = ctx.sym_defs.add_symbol(SymDef::local(&decl.id, ty, ctx.fn_id, decl.mutable));
+            let sym_id = ctx.sym_defs.add_symbol(SymDef::local(&decl.id, ty, ctx.fn_sym, decl.mutable));
 
             ctx.sym_refs.top_mut().add(decl.id.id.clone(), sym_id);
             decl.id.sym_id = Some(sym_id);
@@ -509,15 +508,15 @@ pub fn deduce_block_type(b: &mut Block, expected_ty: TypeId, ctx: &mut AnalysisC
 }
 
 pub fn analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
-    let old_fn_id = ctx.fn_id;
+    let old_fn_sym = ctx.fn_sym;
 
-    ctx.fn_id = f.id;
+    ctx.fn_sym = f.sym_id.unwrap();
 
     ctx.sym_refs.push_scope();
 
     for (i, ref mut decl) in f.sig.params.iter_mut().enumerate() {
         let sym_id = ctx.sym_defs.add_symbol(
-            SymDef::param(&decl.id, decl.ty.type_id, i as u32, ctx.fn_id, decl.mutable)
+            SymDef::param(&decl.id, decl.ty.type_id, i as u32, ctx.fn_sym, decl.mutable)
         );
 
         ctx.sym_refs.top_mut().add(decl.id.id.clone(), sym_id);
@@ -551,13 +550,10 @@ pub fn analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
     );
 
     ctx.sym_refs.pop_scope();
-    ctx.fn_id = old_fn_id;
+    ctx.fn_sym = old_fn_sym;
 }
 
 pub fn pre_analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
-    f.id = ctx.next_fn_id;
-    ctx.next_fn_id += 1;
-
     for decl in f.sig.params.iter_mut() {
         find_type(&mut decl.ty, ctx);
     };
@@ -570,7 +566,7 @@ pub fn pre_analyze_function(f: &mut Function, ctx: &mut AnalysisContext) {
             f.sig.return_type.type_id,
             f.sig.params.iter().map(|decl| decl.ty.type_id).collect()
         ),
-        FunctionId::UserDefined(f.id),
+        FunctionId::UserDefined(SymId(!0)),
         None
     ), ctx.types);
     ctx.sym_refs.top_mut().add(f.name.id.clone(), sym_id);
@@ -693,8 +689,7 @@ pub fn analyze_module(m: &mut Module, errors: &mut Vec<Error>) {
         sym_defs: &mut m.syms,
         sym_refs: ScopedSymRefTable::new(),
         errors,
-        fn_id: !0,
-        next_fn_id: 0
+        fn_sym: SymId(!0)
     };
 
     ctx.sym_refs.push_scope();
