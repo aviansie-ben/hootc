@@ -4,6 +4,120 @@ use ::ast::{BinOp, UnOp};
 use ::lex::Span;
 use ::types::{PrettyType, TypeTable, TypeId};
 
+#[macro_export]
+macro_rules! expect_type {
+    ($expr:expr, $etype:expr, $ctx:ident) => {{
+        if $expr.ty != $etype && !$expr.ty.is_error() {
+            cannot_convert!($expr.span, $etype, $expr.ty, $ctx);
+            false
+        } else {
+            true
+        }
+    }}
+}
+
+#[macro_export]
+macro_rules! expect_resolved_type {
+    ($expr:expr, $ctx:ident) => {{
+        if $ctx.types.is_type_undecided($expr.ty) {
+            cannot_infer_type!($expr, $ctx);
+            false
+        } else {
+            true
+        }
+    }}
+}
+
+#[macro_export]
+macro_rules! cannot_convert {
+    ($span:expr, $etype:expr, $atype:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotConvert { expected: $etype, actual: $atype },
+            $span
+        ));
+    }}
+}
+
+#[macro_export]
+macro_rules! cannot_call {
+    ($expr:expr, $func:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotCallType($func.ty),
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! invalid_call_signature {
+    ($expr:expr, $func:expr, $arg_types:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::InvalidCallSignature { func_type: $func.ty, arg_types: $arg_types },
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! invalid_bin_op_type {
+    ($expr:expr, $op:expr, $lhs:expr, $rhs:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::NoSuchBinOp { op: $op, lhs_type: $lhs.ty, rhs_type: $rhs.ty },
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! invalid_un_op_type {
+    ($expr:expr, $op:expr, $val:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::NoSuchUnOp { op: $op, val_type: $val.ty },
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! cannot_assign {
+    ($expr:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotAssignExpr,
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! cannot_assign_immutable {
+    ($expr:expr, $id:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotAssignImmutable($id),
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! lambda_capture_not_supported {
+    ($expr:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::LambdaCaptureNotSupported,
+            $expr.span
+        ))
+    }}
+}
+
+#[macro_export]
+macro_rules! cannot_infer_type {
+    ($expr:expr, $ctx:ident) => {{
+        $ctx.errors.push(Error(
+            ErrorKind::CannotInferType,
+            $expr.span
+        ))
+    }}
+}
+
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
     CannotConvert { expected: TypeId, actual: TypeId },

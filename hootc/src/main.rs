@@ -3,7 +3,7 @@ extern crate libhootc as lib;
 use std::io::{self, Read};
 
 use lib::analysis::error::PrettyError;
-use lib::analysis::typecheck::analyze_module;
+use lib::analysis::analyze_module;
 use lib::lex::Lexer;
 use lib::log::Log;
 use lib::parse::parse_module;
