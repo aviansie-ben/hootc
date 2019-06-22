@@ -65,7 +65,7 @@ impl From<IlRegister> for usize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IlType {
     I32,
     Addr,
@@ -94,7 +94,7 @@ pub enum IlOperand {
 impl IlOperand {
     pub fn data_type(&self, reg_map: &IlRegisterMap) -> IlType {
         match *self {
-            IlOperand::Register(reg) => reg_map.get_reg_info(reg).1,
+            IlOperand::Register(reg) => reg_map.get_reg_info(reg).1.clone(),
             IlOperand::Const(IlConst::I32(_)) => IlType::I32
         }
     }

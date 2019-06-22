@@ -14,11 +14,11 @@ pub trait CallingConvention {
     fn stack_alignment(&self) -> u32;
     fn stack_red_zone(&self) -> u32;
 
-    fn load_args(&self, code: &mut Vec<Instruction>, params: impl Iterator<Item=(IlRegister, IlType)>) {
+    fn load_args<'a>(&self, code: &mut Vec<Instruction>, params: impl Iterator<Item=(IlRegister, &'a IlType)>) {
         let mut int_arg_regs = self.int_arg_regs();
 
         for (reg, ty) in params {
-            match ty {
+            match *ty {
                 IlType::I32 => {
                     if int_arg_regs.is_empty() {
                         unimplemented!();

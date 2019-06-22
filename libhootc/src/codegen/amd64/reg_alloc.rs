@@ -519,7 +519,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     let tmp_virt = self.reg_alloc.allocate();
                     self.reg_map.add_reg_info(tmp_virt, IlRegisterInfo(
                         IlRegisterType::Temp,
-                        self.reg_map.get_reg_info(src).1
+                        self.reg_map.get_reg_info(src).1.clone()
                     ));
 
                     log_writeln!(log, "  Copying {} (into {}) to avoid overwriting it", src, tmp_virt);
@@ -824,7 +824,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
 
         self.calling_convention.load_args(
             &mut prologue,
-            self.reg_map.params().iter().map(|&reg| (reg, self.reg_map.get_reg_info(reg).1))
+            self.reg_map.params().iter().map(|&reg| (reg, &self.reg_map.get_reg_info(reg).1))
         );
 
         let (blocks, cfg) = split_blocks(prologue.into_iter().chain(func.instrs.into_iter()));

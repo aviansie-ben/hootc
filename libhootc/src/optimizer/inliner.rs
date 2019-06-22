@@ -96,11 +96,11 @@ pub fn generate_inline_site(
 
     for (reg, reg_info) in callee.reg_map.regs() {
         let reg_info = match *reg_info {
-            IlRegisterInfo(IlRegisterType::Local(sym, span), ty) => {
-                IlRegisterInfo(IlRegisterType::Local(sym, map_span(span, callee, &mut span_map, &mut spans)), ty)
+            IlRegisterInfo(IlRegisterType::Local(sym, span), ref ty) => {
+                IlRegisterInfo(IlRegisterType::Local(sym, map_span(span, callee, &mut span_map, &mut spans)), ty.clone())
             },
-            IlRegisterInfo(IlRegisterType::Param(sym, _), ty) => {
-                IlRegisterInfo(IlRegisterType::Local(sym, IlSpanId::dummy()), ty)
+            IlRegisterInfo(IlRegisterType::Param(sym, _), ref ty) => {
+                IlRegisterInfo(IlRegisterType::Local(sym, IlSpanId::dummy()), ty.clone())
             },
             ref reg_info => reg_info.clone()
         };

@@ -57,7 +57,7 @@ pub fn move_loop_invariant_code(
                 if is_const {
                     if let Some(target) = ins.node.target() {
                         let reg = func.reg_alloc.allocate();
-                        let ty = func.reg_map.get_reg_info(target).1;
+                        let ty = func.reg_map.get_reg_info(target).1.clone();
                         func.reg_map.add_reg_info(reg, IlRegisterInfo(IlRegisterType::Temp, ty));
 
                         log_writeln!(log, "Moving loop-invariant instruction at {}:{} into pre-header {} using temp {}", id, i, l.pre_header, reg);
