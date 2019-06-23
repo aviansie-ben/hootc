@@ -1,10 +1,10 @@
 use std::mem;
 
 use ::ast::*;
-use ::sym::{self, ScopedSymRefTable, SymId};
+use ::sym::{ScopedSymRefTable, SymId};
 
 use super::{AnalysisContext};
-use super::error::{Error, ErrorKind};
+use super::error::Error;
 
 fn lift_from_expr(expr: &mut Expr, ctx: &mut AnalysisContext, lifted: &mut Vec<Function>) {
     match expr.node {
