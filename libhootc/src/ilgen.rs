@@ -320,7 +320,7 @@ fn generate_direct_call_il<'a>(
         },
         FunctionId::NotBool => {
             b.append_instruction(
-                IlInstructionKind::LogicNotI32(tgt, IlOperand::Register(args[0])),
+                IlInstructionKind::EqI32(tgt, IlOperand::Register(args[0]), IlOperand::Const(IlConst::I32(0))),
                 span
             );
         },

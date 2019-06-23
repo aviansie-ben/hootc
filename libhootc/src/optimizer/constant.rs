@@ -17,7 +17,6 @@ fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     Some(match *instr {
         NegI32(_, Const(I32(v))) => I32(v.wrapping_neg()),
         NotI32(_, Const(I32(v))) => I32(!v),
-        LogicNotI32(_, Const(I32(v))) => I32(if v == 0 { 1 } else { 0 }),
         AddI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_add(r)),
         SubI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_sub(r)),
         MulI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_mul(r)),

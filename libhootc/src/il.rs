@@ -115,7 +115,6 @@ pub enum IlInstructionKind {
     Copy(IlRegister, IlOperand),
     NegI32(IlRegister, IlOperand),
     NotI32(IlRegister, IlOperand),
-    LogicNotI32(IlRegister, IlOperand),
     AddI32(IlRegister, IlOperand, IlOperand),
     SubI32(IlRegister, IlOperand, IlOperand),
     MulI32(IlRegister, IlOperand, IlOperand),
@@ -134,7 +133,6 @@ impl fmt::Display for IlInstructionKind {
             Copy(ref tgt, ref o) => write!(f, "copy {} {}", tgt, o),
             NegI32(ref tgt, ref o) => write!(f, "neg.i32 {} {}", tgt, o),
             NotI32(ref tgt, ref o) => write!(f, "not.i32 {} {}", tgt, o),
-            LogicNotI32(ref tgt, ref o) => write!(f, "lnot.i32 {} {}", tgt, o),
             AddI32(ref tgt, ref o1, ref o2) => write!(f, "add.i32 {} {} {}", tgt, o1, o2),
             SubI32(ref tgt, ref o1, ref o2) => write!(f, "sub.i32 {} {} {}", tgt, o1, o2),
             MulI32(ref tgt, ref o1, ref o2) => write!(f, "mul.i32 {} {} {}", tgt, o1, o2),
@@ -162,7 +160,6 @@ impl IlInstructionKind {
             Copy(tgt, _) => Some(tgt),
             NegI32(tgt, _) => Some(tgt),
             NotI32(tgt, _) => Some(tgt),
-            LogicNotI32(tgt, _) => Some(tgt),
             AddI32(tgt, _, _) => Some(tgt),
             SubI32(tgt, _, _) => Some(tgt),
             MulI32(tgt, _, _) => Some(tgt),
@@ -181,7 +178,6 @@ impl IlInstructionKind {
             Copy(ref mut tgt, _) => Some(tgt),
             NegI32(ref mut tgt, _) => Some(tgt),
             NotI32(ref mut tgt, _) => Some(tgt),
-            LogicNotI32(ref mut tgt, _) => Some(tgt),
             AddI32(ref mut tgt, _, _) => Some(tgt),
             SubI32(ref mut tgt, _, _) => Some(tgt),
             MulI32(ref mut tgt, _, _) => Some(tgt),
@@ -204,9 +200,6 @@ impl IlInstructionKind {
                 f(o);
             },
             NotI32(_, ref o) => {
-                f(o);
-            },
-            LogicNotI32(_, ref o) => {
                 f(o);
             },
             AddI32(_, ref o1, ref o2) => {
@@ -255,9 +248,6 @@ impl IlInstructionKind {
             NotI32(_, ref mut o) => {
                 f(o);
             },
-            LogicNotI32(_, ref mut o) => {
-                f(o);
-            }
             AddI32(_, ref mut o1, ref mut o2) => {
                 f(o1);
                 f(o2);

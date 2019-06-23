@@ -103,33 +103,6 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                 span
             ));
         },
-        LogicNotI32(tgt, ref src) => {
-            let src = generate_load_for_operand(src, ctx, span);
-
-            ctx.code.push(Instruction::new(
-                InstructionKind::Test(
-                    RegisterSize::DWord,
-                    XSrc::Reg(SrcRegister::virt(src)),
-                    XSrc::Reg(SrcRegister::virt(src))
-                ),
-                span
-            ));
-            ctx.code.push(Instruction::new(
-                InstructionKind::SetCondition(
-                    Condition::Equal,
-                    XDest::Reg(DestRegister::virt(None, tgt))
-                ),
-                span
-            ));
-            ctx.code.push(Instruction::new(
-                InstructionKind::And(
-                    RegisterSize::DWord,
-                    XDest::Reg(DestRegister::virt(Some(tgt), tgt)),
-                    XSrc::Imm(1)
-                ),
-                instr.span
-            ));
-        },
         AddI32(tgt, ref src1, ref src2) => {
             let src1 = generate_load_for_operand(src1, ctx, span);
             let src2 = generate_src_for_operand(src2, ctx, span);
@@ -211,6 +184,33 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                 }
             }
         },
+        EqI32(tgt, ref src1, IlOperand::Const(IlConst::I32(0))) => {
+            let src1 = generate_load_for_operand(src1, ctx, span);
+
+            ctx.code.push(Instruction::new(
+                InstructionKind::Test(
+                    RegisterSize::DWord,
+                    XSrc::Reg(SrcRegister::virt(src1)),
+                    XSrc::Reg(SrcRegister::virt(src1))
+                ),
+                span
+            ));
+            ctx.code.push(Instruction::new(
+                InstructionKind::SetCondition(
+                    Condition::Equal,
+                    XDest::Reg(DestRegister::virt(None, tgt))
+                ),
+                span
+            ));
+            ctx.code.push(Instruction::new(
+                InstructionKind::And(
+                    RegisterSize::DWord,
+                    XDest::Reg(DestRegister::virt(Some(tgt), tgt)),
+                    XSrc::Imm(1)
+                ),
+                span
+            ));
+        },
         EqI32(tgt, ref src1, ref src2) => {
             let src1 = generate_src_for_operand(src1, ctx, span);
             let src2 = generate_src_for_operand(src2, ctx, span);
@@ -228,7 +228,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                     Condition::Equal,
                     XDest::Reg(DestRegister::virt(None, tgt))
                 ),
-                instr.span
+                span
             ));
             ctx.code.push(Instruction::new(
                 InstructionKind::And(
@@ -236,7 +236,34 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                     XDest::Reg(DestRegister::virt(Some(tgt), tgt)),
                     XSrc::Imm(1)
                 ),
-                instr.span
+                span
+            ));
+        },
+        NeI32(tgt, ref src1, IlOperand::Const(IlConst::I32(0))) => {
+            let src1 = generate_load_for_operand(src1, ctx, span);
+
+            ctx.code.push(Instruction::new(
+                InstructionKind::Test(
+                    RegisterSize::DWord,
+                    XSrc::Reg(SrcRegister::virt(src1)),
+                    XSrc::Reg(SrcRegister::virt(src1))
+                ),
+                span
+            ));
+            ctx.code.push(Instruction::new(
+                InstructionKind::SetCondition(
+                    Condition::NotEqual,
+                    XDest::Reg(DestRegister::virt(None, tgt))
+                ),
+                span
+            ));
+            ctx.code.push(Instruction::new(
+                InstructionKind::And(
+                    RegisterSize::DWord,
+                    XDest::Reg(DestRegister::virt(Some(tgt), tgt)),
+                    XSrc::Imm(1)
+                ),
+                span
             ));
         },
         NeI32(tgt, ref src1, ref src2) => {
@@ -256,7 +283,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                     Condition::NotEqual,
                     XDest::Reg(DestRegister::virt(None, tgt))
                 ),
-                instr.span
+                span
             ));
             ctx.code.push(Instruction::new(
                 InstructionKind::And(
@@ -264,7 +291,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                     XDest::Reg(DestRegister::virt(Some(tgt), tgt)),
                     XSrc::Imm(1)
                 ),
-                instr.span
+                span
             ));
         },
         PrintI32(_) => unimplemented!(),
