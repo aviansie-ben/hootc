@@ -16,13 +16,16 @@ fn try_fold_instr(instr: &IlInstructionKind) -> Option<IlConst> {
     use crate::il::IlOperand::*;
     Some(match *instr {
         NegI32(_, Const(I32(v))) => I32(v.wrapping_neg()),
+        NotI1(_, Const(I1(v))) => I1(!v),
         NotI32(_, Const(I32(v))) => I32(!v),
         AddI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_add(r)),
         SubI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_sub(r)),
         MulI32(_, Const(I32(l)), Const(I32(r))) => I32(l.wrapping_mul(r)),
         ShlI32(_, Const(I32(l)), Const(I32(r))) => I32(l >> r),
-        EqI32(_, Const(I32(l)), Const(I32(r))) => I32(if l == r { 1 } else { 0 }),
-        NeI32(_, Const(I32(l)), Const(I32(r))) => I32(if l != r { 1 } else { 0 }),
+        EqI1(_, Const(I1(l)), Const(I1(r))) => I1(l == r),
+        EqI32(_, Const(I32(l)), Const(I32(r))) => I1(l == r),
+        NeI1(_, Const(I1(l)), Const(I1(r))) => I1(l != r),
+        NeI32(_, Const(I32(l)), Const(I32(r))) => I1(l != r),
         _ => return None
     })
 }
@@ -275,8 +278,8 @@ fn calc_constant_jump_condition(instr: &IlEndingInstructionKind) -> Option<bool>
     use crate::il::IlEndingInstructionKind::*;
     use crate::il::IlOperand::*;
     Some(match *instr {
-        JumpNonZero(_, Const(I32(v))) => v != 0,
-        JumpZero(_, Const(I32(v))) => v == 0,
+        JumpNonZeroI1(_, Const(I1(v))) => v,
+        JumpZeroI1(_, Const(I1(v))) => !v,
         _ => return None
     })
 }
@@ -355,9 +358,19 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             *instr = IlInstructionKind::MulI32(tgt, Register(r), Const(I32(l)));
             true
         },
+        EqI1(tgt, Const(I1(l)), Register(r)) => {
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
+            *instr = IlInstructionKind::EqI1(tgt, Register(r), Const(I1(l)));
+            true
+        },
         EqI32(tgt, Const(I32(l)), Register(r)) => {
             log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
             *instr = IlInstructionKind::EqI32(tgt, Register(r), Const(I32(l)));
+            true
+        },
+        NeI1(tgt, Const(I1(l)), Register(r)) => {
+            log_writeln!(log, "Moved constant to RHS at {}:{}", id, i);
+            *instr = IlInstructionKind::NeI1(tgt, Register(r), Const(I1(l)));
             true
         },
         NeI32(tgt, Const(I32(l)), Register(r)) => {
@@ -370,37 +383,37 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
 
     updated = (match *instr {
         AddI32(tgt, Register(l), Const(I32(0))) => {
-            log_writeln!(log, "Collapsed {} + 0 => {} at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} + i32:0 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         SubI32(tgt, Register(l), Const(I32(0))) => {
-            log_writeln!(log, "Collapsed {} - 0 => {} at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} - i32:0 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         SubI32(tgt, Const(I32(0)), Register(r)) => {
-            log_writeln!(log, "Collapsed 0 - {} => -{} at {}:{}", r, r, id, i);
+            log_writeln!(log, "Collapsed i32:0 - {} => -{} at {}:{}", r, r, id, i);
             *instr = IlInstructionKind::NegI32(tgt, Register(r));
             true
         },
         SubI32(tgt, Register(l), Register(r)) if l == r => {
-            log_writeln!(log, "Collapsed {} - {} => 0 at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} - {} => i32:0 at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
             true
         },
         MulI32(tgt, Register(l), Const(I32(0))) => {
-            log_writeln!(log, "Collapsed {} * 0 => 0 at {}:{}", l, id, i);
+            log_writeln!(log, "Collapsed {} * i32:0 => i32:0 at {}:{}", l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
             true
         },
         MulI32(tgt, Register(l), Const(I32(1))) => {
-            log_writeln!(log, "Collapsed {} * 1 => {} at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} * i32:1 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Register(l));
             true
         },
         MulI32(tgt, Register(l), Const(I32(-1))) => {
-            log_writeln!(log, "Collapsed {} * -1 => -{} at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} * i32:-1 => -{} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::NegI32(tgt, Register(l));
             true
         },
@@ -475,18 +488,48 @@ fn try_simplify_algebraically<F: FnMut (IlInstructionKind) -> ()>(
             true
         },
         ShlI32(tgt, Register(l), Const(I32(0))) => {
-            log_writeln!(log, "Collapsed {} << 0 => {} at {}:{}", l, l, id, i);
+            log_writeln!(log, "Collapsed {} << i32:0 => {} at {}:{}", l, l, id, i);
             *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));
+            true
+        },
+        EqI1(tgt, Register(l), Register(r)) if l == r => {
+            log_writeln!(log, "Collapsed {} == {} => i1:1 at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Const(I1(true)));
+            true
+        },
+        EqI1(tgt, Register(l), Const(I1(true))) => {
+            log_writeln!(log, "Collapsed {} == i1:1 => {} at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Register(l));
+            true
+        },
+        EqI1(tgt, Register(l), Const(I1(false))) => {
+            log_writeln!(log, "Collapsed {} == i1:0 => !{} at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::NotI1(tgt, Register(l));
             true
         },
         EqI32(tgt, Register(l), Register(r)) if l == r => {
-            log_writeln!(log, "Collapsed {} == {} => 1 at {}:{}", l, l, id, i);
-            *instr = IlInstructionKind::Copy(tgt, Const(I32(1)));
+            log_writeln!(log, "Collapsed {} == {} => i1:1 at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Const(I1(true)));
+            true
+        },
+        NeI1(tgt, Register(l), Const(I1(true))) => {
+            log_writeln!(log, "Collapsed {} != i1:1 => !{} at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::NotI1(tgt, Register(l));
+            true
+        },
+        NeI1(tgt, Register(l), Const(I1(false))) => {
+            log_writeln!(log, "Collapsed {} != i1:0 => {} at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Register(l));
+            true
+        },
+        NeI1(tgt, Register(l), Register(r)) if l == r => {
+            log_writeln!(log, "Collapsed {} != {} => i1:0 at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Const(I1(false)));
             true
         },
         NeI32(tgt, Register(l), Register(r)) if l == r => {
-            log_writeln!(log, "Collapsed {} != {} => 0 at {}:{}", l, l, id, i);
-            *instr = IlInstructionKind::Copy(tgt, Const(I32(0)));
+            log_writeln!(log, "Collapsed {} != {} => i1:0 at {}:{}", l, l, id, i);
+            *instr = IlInstructionKind::Copy(tgt, Const(I1(false)));
             true
         },
         _ => false
@@ -548,33 +591,21 @@ fn try_simplify_jump_condition(
     log: &mut Log
 ) -> bool {
     let (reverse, target, reg) = match *jmp_ins {
-        IlEndingInstructionKind::JumpNonZero(target, IlOperand::Register(reg)) => (false, target, reg),
-        IlEndingInstructionKind::JumpZero(target, IlOperand::Register(reg)) => (true, target, reg),
+        IlEndingInstructionKind::JumpNonZeroI1(target, IlOperand::Register(reg)) => (false, target, reg),
+        IlEndingInstructionKind::JumpZeroI1(target, IlOperand::Register(reg)) => (true, target, reg),
         _ => {
             return false;
         }
     };
 
     match *cmp_ins {
-        IlInstructionKind::EqI32(cmp_reg, ref lhs, IlOperand::Const(IlConst::I32(0)))
-            if cmp_reg == reg && lhs != &IlOperand::Register(reg) => {
+        IlInstructionKind::NotI1(cmp_reg, ref val) if cmp_reg == reg && val != &IlOperand::Register(reg) => {
             if reverse {
-                log_writeln!(log, "{}: Replacing (i32 == 0) followed by jz with jnz", block);
-                *jmp_ins = IlEndingInstructionKind::JumpNonZero(target, lhs.clone());
+                log_writeln!(log, "{}: Replacing !i1 followed by jz.i1 with jnz.i1", block);
+                *jmp_ins = IlEndingInstructionKind::JumpNonZeroI1(target, val.clone());
             } else {
-                log_writeln!(log, "{}: Replacing (i32 == 0) followed by jnz with jz", block);
-                *jmp_ins = IlEndingInstructionKind::JumpZero(target, lhs.clone());
-            };
-            true
-        },
-        IlInstructionKind::NeI32(cmp_reg, ref lhs, IlOperand::Const(IlConst::I32(0)))
-            if cmp_reg == reg && lhs != &IlOperand::Register(reg) => {
-            if reverse {
-                log_writeln!(log, "{}: Replacing (i32 != 0) followed by jz with jz", block);
-                *jmp_ins = IlEndingInstructionKind::JumpZero(target, lhs.clone());
-            } else {
-                log_writeln!(log, "{}: Replacing (i32 != 0) followed by jnz with jnz", block);
-                *jmp_ins = IlEndingInstructionKind::JumpNonZero(target, lhs.clone());
+                log_writeln!(log, "{}: Replacing !i1 followed by jnz.i1 with jz.i1", block);
+                *jmp_ins = IlEndingInstructionKind::JumpZeroI1(target, val.clone());
             };
             true
         },

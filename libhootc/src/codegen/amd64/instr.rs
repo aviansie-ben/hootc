@@ -471,6 +471,7 @@ pub enum InstructionKind {
     Add(RegisterSize, XDest, XSrc),
     Sub(RegisterSize, XDest, XSrc),
     And(RegisterSize, XDest, XSrc),
+    Xor(RegisterSize, XDest, XSrc),
     Test(RegisterSize, XSrc, XSrc),
     Compare(RegisterSize, XSrc, XSrc),
     Neg(RegisterSize, XDest),
@@ -558,6 +559,10 @@ impl InstructionKind {
                 call_for_xsrc(f, src);
             },
             InstructionKind::And(_, ref dest, ref src) => {
+                call_for_xdest(f, dest);
+                call_for_xsrc(f, src);
+            },
+            InstructionKind::Xor(_, ref dest, ref src) => {
                 call_for_xdest(f, dest);
                 call_for_xsrc(f, src);
             },
@@ -650,6 +655,9 @@ impl InstructionKind {
             InstructionKind::And(_, ref dest, _) => {
                 call_for_xdest(f, dest);
             },
+            InstructionKind::Xor(_, ref dest, _) => {
+                call_for_xdest(f, dest);
+            },
             InstructionKind::Test(_, _, _) => {},
             InstructionKind::Compare(_, _, _) => {},
             InstructionKind::Neg(_, ref dest) => {
@@ -713,6 +721,9 @@ impl InstructionKind {
             InstructionKind::And(_, ref mut dest, ref mut src) => {
                 dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
             },
+            InstructionKind::Xor(_, ref mut dest, ref mut src) => {
+                dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
+            },
             InstructionKind::Test(_, ref mut src1, ref mut src2) => {
                 src1.as_mem_arg_mut().or(src2.as_mem_arg_mut())
             },
@@ -763,6 +774,7 @@ impl InstructionKind {
             InstructionKind::Add(_, _, _) => true,
             InstructionKind::Sub(_, _, _) => true,
             InstructionKind::And(_, _, _) => true,
+            InstructionKind::Xor(_, _, _) => true,
             InstructionKind::Test(_, _, _) => true,
             InstructionKind::Compare(_, _, _) => true,
             InstructionKind::Neg(_, _) => true,
@@ -793,6 +805,7 @@ impl InstructionKind {
             InstructionKind::Add(_, _, _) => false,
             InstructionKind::Sub(_, _, _) => false,
             InstructionKind::And(_, _, _) => false,
+            InstructionKind::Xor(_, _, _) => false,
             InstructionKind::Test(_, _, _) => false,
             InstructionKind::Compare(_, _, _) => false,
             InstructionKind::Neg(_, _) => false,
@@ -856,6 +869,9 @@ impl <'a> fmt::Display for PrettyInstruction<'a> {
             },
             InstructionKind::And(size, ref dest, ref src) => {
                 write!(f, "and {}, {}", dest.pretty(size), src.pretty(size))?;
+            },
+            InstructionKind::Xor(size, ref dest, ref src) => {
+                write!(f, "xor {}, {}", dest.pretty(size), src.pretty(size))?;
             },
             InstructionKind::Test(size, ref src1, ref src2) => {
                 write!(f, "test {}, {}", src1.pretty(size), src2.pretty(size))?;

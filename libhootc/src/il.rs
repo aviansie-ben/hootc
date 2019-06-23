@@ -67,6 +67,7 @@ impl From<IlRegister> for usize {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IlType {
+    I1,
     I32,
     Addr,
     Void
@@ -74,12 +75,15 @@ pub enum IlType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IlConst {
+    I1(bool),
     I32(i32)
 }
 
 impl fmt::Display for IlConst {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            IlConst::I1(false) => write!(f, "i1:0"),
+            IlConst::I1(true) => write!(f, "i1:1"),
             IlConst::I32(val) => write!(f, "i32:{}", val)
         }
     }
@@ -95,6 +99,7 @@ impl IlOperand {
     pub fn data_type(&self, reg_map: &IlRegisterMap) -> IlType {
         match *self {
             IlOperand::Register(reg) => reg_map.get_reg_info(reg).1.clone(),
+            IlOperand::Const(IlConst::I1(_)) => IlType::I1,
             IlOperand::Const(IlConst::I32(_)) => IlType::I32
         }
     }
@@ -114,12 +119,15 @@ pub enum IlInstructionKind {
     Nop,
     Copy(IlRegister, IlOperand),
     NegI32(IlRegister, IlOperand),
+    NotI1(IlRegister, IlOperand),
     NotI32(IlRegister, IlOperand),
     AddI32(IlRegister, IlOperand, IlOperand),
     SubI32(IlRegister, IlOperand, IlOperand),
     MulI32(IlRegister, IlOperand, IlOperand),
     ShlI32(IlRegister, IlOperand, IlOperand),
+    EqI1(IlRegister, IlOperand, IlOperand),
     EqI32(IlRegister, IlOperand, IlOperand),
+    NeI1(IlRegister, IlOperand, IlOperand),
     NeI32(IlRegister, IlOperand, IlOperand),
     PrintI32(IlOperand),
     Call(IlRegister, Vec<IlOperand>, SymId, u8)
@@ -132,12 +140,15 @@ impl fmt::Display for IlInstructionKind {
             Nop => write!(f, "nop"),
             Copy(ref tgt, ref o) => write!(f, "copy {} {}", tgt, o),
             NegI32(ref tgt, ref o) => write!(f, "neg.i32 {} {}", tgt, o),
+            NotI1(ref tgt, ref o) => write!(f, "not.i1 {} {}", tgt, o),
             NotI32(ref tgt, ref o) => write!(f, "not.i32 {} {}", tgt, o),
             AddI32(ref tgt, ref o1, ref o2) => write!(f, "add.i32 {} {} {}", tgt, o1, o2),
             SubI32(ref tgt, ref o1, ref o2) => write!(f, "sub.i32 {} {} {}", tgt, o1, o2),
             MulI32(ref tgt, ref o1, ref o2) => write!(f, "mul.i32 {} {} {}", tgt, o1, o2),
             ShlI32(ref tgt, ref o1, ref o2) => write!(f, "shl.i32 {} {} {}", tgt, o1, o2),
+            EqI1(ref tgt, ref o1, ref o2) => write!(f, "eq.i1 {} {} {}", tgt, o1, o2),
             EqI32(ref tgt, ref o1, ref o2) => write!(f, "eq.i32 {} {} {}", tgt, o1, o2),
+            NeI1(ref tgt, ref o1, ref o2) => write!(f, "ne.i1 {} {} {}", tgt, o1, o2),
             NeI32(ref tgt, ref o1, ref o2) => write!(f, "ne.i32 {} {} {}", tgt, o1, o2),
             PrintI32(ref o) => write!(f, "print.i32 {}", o),
             Call(ref tgt, ref os, ref func, ref depth) => {
@@ -159,12 +170,15 @@ impl IlInstructionKind {
             Nop => None,
             Copy(tgt, _) => Some(tgt),
             NegI32(tgt, _) => Some(tgt),
+            NotI1(tgt, _) => Some(tgt),
             NotI32(tgt, _) => Some(tgt),
             AddI32(tgt, _, _) => Some(tgt),
             SubI32(tgt, _, _) => Some(tgt),
             MulI32(tgt, _, _) => Some(tgt),
             ShlI32(tgt, _, _) => Some(tgt),
+            EqI1(tgt, _, _) => Some(tgt),
             EqI32(tgt, _, _) => Some(tgt),
+            NeI1(tgt, _, _) => Some(tgt),
             NeI32(tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
             Call(tgt, _, _, _) => Some(tgt)
@@ -177,12 +191,15 @@ impl IlInstructionKind {
             Nop => None,
             Copy(ref mut tgt, _) => Some(tgt),
             NegI32(ref mut tgt, _) => Some(tgt),
+            NotI1(ref mut tgt, _) => Some(tgt),
             NotI32(ref mut tgt, _) => Some(tgt),
             AddI32(ref mut tgt, _, _) => Some(tgt),
             SubI32(ref mut tgt, _, _) => Some(tgt),
             MulI32(ref mut tgt, _, _) => Some(tgt),
             ShlI32(ref mut tgt, _, _) => Some(tgt),
+            EqI1(ref mut tgt, _, _) => Some(tgt),
             EqI32(ref mut tgt, _, _) => Some(tgt),
+            NeI1(ref mut tgt, _, _) => Some(tgt),
             NeI32(ref mut tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
             Call(ref mut tgt, _, _, _) => Some(tgt)
@@ -197,6 +214,9 @@ impl IlInstructionKind {
                 f(o);
             },
             NegI32(_, ref o) => {
+                f(o);
+            },
+            NotI1(_, ref o) => {
                 f(o);
             },
             NotI32(_, ref o) => {
@@ -218,7 +238,15 @@ impl IlInstructionKind {
                 f(o1);
                 f(o2);
             },
+            EqI1(_, ref o1, ref o2) => {
+                f(o1);
+                f(o2);
+            },
             EqI32(_, ref o1, ref o2) => {
+                f(o1);
+                f(o2);
+            },
+            NeI1(_, ref o1, ref o2) => {
                 f(o1);
                 f(o2);
             },
@@ -245,6 +273,9 @@ impl IlInstructionKind {
             NegI32(_, ref mut o) => {
                 f(o);
             },
+            NotI1(_, ref mut o) => {
+                f(o);
+            },
             NotI32(_, ref mut o) => {
                 f(o);
             },
@@ -264,7 +295,15 @@ impl IlInstructionKind {
                 f(o1);
                 f(o2);
             },
+            EqI1(_, ref mut o1, ref mut o2) => {
+                f(o1);
+                f(o2);
+            },
             EqI32(_, ref mut o1, ref mut o2) => {
+                f(o1);
+                f(o2);
+            },
+            NeI1(_, ref mut o1, ref mut o2) => {
                 f(o1);
                 f(o2);
             },
@@ -361,8 +400,8 @@ impl IlInstructionKind {
 pub enum IlEndingInstructionKind {
     Nop,
     Jump(IlBlockId),
-    JumpNonZero(IlBlockId, IlOperand),
-    JumpZero(IlBlockId, IlOperand),
+    JumpNonZeroI1(IlBlockId, IlOperand),
+    JumpZeroI1(IlBlockId, IlOperand),
     Return(IlOperand)
 }
 
@@ -372,8 +411,8 @@ impl IlEndingInstructionKind {
         match *self {
             Nop => {},
             Jump(_) => {},
-            JumpNonZero(_, ref cond) => f(cond),
-            JumpZero(_, ref cond) => f(cond),
+            JumpNonZeroI1(_, ref cond) => f(cond),
+            JumpZeroI1(_, ref cond) => f(cond),
             Return(ref val) => f(val),
         };
     }
@@ -383,8 +422,8 @@ impl IlEndingInstructionKind {
         match *self {
             Nop => {},
             Jump(_) => {},
-            JumpNonZero(_, ref mut cond) => f(cond),
-            JumpZero(_, ref mut cond) => f(cond),
+            JumpNonZeroI1(_, ref mut cond) => f(cond),
+            JumpZeroI1(_, ref mut cond) => f(cond),
             Return(ref mut val) => f(val)
         };
     }
@@ -403,8 +442,8 @@ impl IlEndingInstructionKind {
         match *self {
             Nop => None,
             Jump(target) => Some(target),
-            JumpNonZero(target, _) => Some(target),
-            JumpZero(target, _) => Some(target),
+            JumpNonZeroI1(target, _) => Some(target),
+            JumpZeroI1(target, _) => Some(target),
             Return(_) => None
         }
     }
@@ -413,8 +452,8 @@ impl IlEndingInstructionKind {
         use self::IlEndingInstructionKind::*;
         match *self {
             Jump(ref mut target) => { *target = id; },
-            JumpNonZero(ref mut target, _) => { *target = id; },
-            JumpZero(ref mut target, _) => { *target = id; },
+            JumpNonZeroI1(ref mut target, _) => { *target = id; },
+            JumpZeroI1(ref mut target, _) => { *target = id; },
             _ => unreachable!()
         };
     }
@@ -434,8 +473,8 @@ impl fmt::Display for IlEndingInstructionKind {
         match *self {
             Nop => write!(f, "nop"),
             Jump(IlBlockId(target)) => write!(f, "j L{}", target),
-            JumpNonZero(IlBlockId(target), ref cond) => write!(f, "jnz L{}, {}", target, cond),
-            JumpZero(IlBlockId(target), ref cond) => write!(f, "jz L{}, {}", target, cond),
+            JumpNonZeroI1(IlBlockId(target), ref cond) => write!(f, "jnz.i1 L{}, {}", target, cond),
+            JumpZeroI1(IlBlockId(target), ref cond) => write!(f, "jz.i1 L{}, {}", target, cond),
             Return(ref val) => write!(f, "ret {}", val),
         }
     }

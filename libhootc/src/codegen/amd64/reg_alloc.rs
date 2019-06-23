@@ -216,6 +216,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
 
     fn alloc_params(&mut self, reg: IlRegister) -> (i32, i32) {
         match self.reg_map.get_reg_info(reg).1 {
+            IlType::I1 => (1, 1),
             IlType::I32 => (4, 4),
             IlType::Addr => (8, 8),
             IlType::Void => (0, 1)
@@ -639,6 +640,12 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 self.allocate_for_xdest(dest, span, code_out, to_free, log);
             },
             InstructionKind::And(_, ref mut dest, ref mut src) => {
+                self.try_commutate(dest, src, log);
+
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_xdest(dest, span, code_out, to_free, log);
+            },
+            InstructionKind::Xor(_, ref mut dest, ref mut src) => {
                 self.try_commutate(dest, src, log);
 
                 self.allocate_for_xsrc(src, span, code_out, to_free, log);

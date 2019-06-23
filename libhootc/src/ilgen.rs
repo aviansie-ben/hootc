@@ -12,7 +12,7 @@ use super::types::{Type, TypeId, TypeTable};
 pub fn map_to_il_type(ty: TypeId, types: &TypeTable) -> IlType {
     match *types.find_type(ty) {
         Type::Error => unreachable!(),
-        Type::Bool => IlType::I32,
+        Type::Bool => IlType::I1,
         Type::I32 => IlType::I32,
         Type::Tuple(ref tys) => match &tys[..] {
             [] => IlType::Void,
@@ -139,19 +139,19 @@ fn generate_direct_call_il<'a>(
             let o1 = args.next().unwrap();
             let o1_r = generate_expression_il_to_temp(o1, b, ctx);
             let o1_end_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpZero(IlBlockId::dummy(), IlOperand::Register(o1_r)),
+                IlEndingInstructionKind::JumpZeroI1(IlBlockId::dummy(), IlOperand::Register(o1_r)),
                 o1.span
             );
 
             let o2 = args.next().unwrap();
             let o2_r = generate_expression_il_to_temp(o2, b, ctx);
             let o2_end_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpZero(IlBlockId::dummy(), IlOperand::Register(o2_r)),
+                IlEndingInstructionKind::JumpZeroI1(IlBlockId::dummy(), IlOperand::Register(o2_r)),
                 o2.span
             );
 
             b.append_instruction(
-                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I32(1))),
+                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I1(true))),
                 span
             );
             let true_block = b.append_ending_instruction(
@@ -160,7 +160,7 @@ fn generate_direct_call_il<'a>(
             );
 
             b.append_instruction(
-                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I32(0))),
+                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I1(false))),
                 span
             );
             let false_block = b.end_block();
@@ -178,19 +178,19 @@ fn generate_direct_call_il<'a>(
             let o1 = args.next().unwrap();
             let o1_r = generate_expression_il_to_temp(o1, b, ctx);
             let o1_end_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpNonZero(IlBlockId::dummy(), IlOperand::Register(o1_r)),
+                IlEndingInstructionKind::JumpNonZeroI1(IlBlockId::dummy(), IlOperand::Register(o1_r)),
                 o1.span
             );
 
             let o2 = args.next().unwrap();
             let o2_r = generate_expression_il_to_temp(o2, b, ctx);
             let o2_end_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpNonZero(IlBlockId::dummy(), IlOperand::Register(o2_r)),
+                IlEndingInstructionKind::JumpNonZeroI1(IlBlockId::dummy(), IlOperand::Register(o2_r)),
                 o2.span
             );
 
             b.append_instruction(
-                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I32(0))),
+                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I1(false))),
                 span
             );
             let false_block = b.append_ending_instruction(
@@ -199,7 +199,7 @@ fn generate_direct_call_il<'a>(
             );
 
             b.append_instruction(
-                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I32(1))),
+                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I1(true))),
                 span
             );
             let true_block = b.end_block();
@@ -300,7 +300,7 @@ fn generate_direct_call_il<'a>(
         },
         FunctionId::EqBool => {
             b.append_instruction(
-                IlInstructionKind::EqI32(
+                IlInstructionKind::EqI1(
                     tgt,
                     IlOperand::Register(args[0]),
                     IlOperand::Register(args[1])
@@ -310,7 +310,7 @@ fn generate_direct_call_il<'a>(
         },
         FunctionId::NeBool => {
             b.append_instruction(
-                IlInstructionKind::NeI32(
+                IlInstructionKind::NeI1(
                     tgt,
                     IlOperand::Register(args[0]),
                     IlOperand::Register(args[1])
@@ -320,7 +320,7 @@ fn generate_direct_call_il<'a>(
         },
         FunctionId::NotBool => {
             b.append_instruction(
-                IlInstructionKind::EqI32(tgt, IlOperand::Register(args[0]), IlOperand::Const(IlConst::I32(0))),
+                IlInstructionKind::NotI1(tgt, IlOperand::Register(args[0])),
                 span
             );
         },
@@ -402,7 +402,7 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
                 ctx
             );
             let cond_end_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpZero(IlBlockId::dummy(), IlOperand::Register(cond_r)),
+                IlEndingInstructionKind::JumpZeroI1(IlBlockId::dummy(), IlOperand::Register(cond_r)),
                 cond.span
             );
 
@@ -428,7 +428,7 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
         While(box (ref cond, ref block)) => {
             let icond_r = generate_expression_il_to_temp(cond, b, ctx);
             let icond_block = b.append_ending_instruction(
-                IlEndingInstructionKind::JumpZero(IlBlockId::dummy(), IlOperand::Register(icond_r)),
+                IlEndingInstructionKind::JumpZeroI1(IlBlockId::dummy(), IlOperand::Register(icond_r)),
                 cond.span
             );
 
@@ -437,7 +437,7 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
 
             let cond_r = generate_expression_il_to_temp(cond, b, ctx);
             b.append_ending_instruction(
-                IlEndingInstructionKind::JumpNonZero(loop_block, IlOperand::Register(cond_r)),
+                IlEndingInstructionKind::JumpNonZeroI1(loop_block, IlOperand::Register(cond_r)),
                 cond.span
             );
 
@@ -458,7 +458,7 @@ fn generate_expression_il(e: &ast::Expr, tgt: IlRegister, b: &mut IlBuilder, ctx
         },
         Bool(val) => {
             b.append_instruction(
-                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I32(if val { 1 } else { 0 }))),
+                IlInstructionKind::Copy(tgt, IlOperand::Const(IlConst::I1(val))),
                 e.span
             );
         }

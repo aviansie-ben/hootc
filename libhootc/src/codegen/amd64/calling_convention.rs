@@ -19,6 +19,23 @@ pub trait CallingConvention {
 
         for (reg, ty) in params {
             match *ty {
+                IlType::I1 => {
+                    if int_arg_regs.is_empty() {
+                        unimplemented!();
+                    } else {
+                        let real_reg = int_arg_regs[0];
+                        int_arg_regs = &int_arg_regs[1..];
+
+                        code.push(Instruction::new(
+                            InstructionKind::Mov(
+                                RegisterSize::Byte,
+                                XDest::Reg(DestRegister::virt(None, reg)),
+                                XSrc::Reg(SrcRegister::real(real_reg))
+                            ),
+                            IlSpanId::dummy()
+                        ));
+                    };
+                },
                 IlType::I32 => {
                     if int_arg_regs.is_empty() {
                         unimplemented!();
