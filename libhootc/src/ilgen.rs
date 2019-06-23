@@ -538,7 +538,6 @@ fn generate_block_il(block: &ast::Block, tgt: IlRegister, b: &mut IlBuilder, ctx
     };
 
     if let Some(ref result) = block.result {
-        log_writeln!(ctx.log, "{} <= {} <- {}", b.next_block_id(), tgt, result.pretty(ctx.types, 2));
         generate_expression_il(result, tgt, b, ctx);
     };
 
