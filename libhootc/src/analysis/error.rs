@@ -162,14 +162,11 @@ impl <'a> fmt::Display for PrettyError<'a> {
             },
             ErrorKind::InvalidCallSignature { func_type, ref arg_types } => {
                 write!(f, "cannot call a value of type {} with arguments (", PrettyType(func_type, type_table))?;
-                match &arg_types[..] {
-                    [ head, tail.. ] => {
-                        write!(f, "{}", PrettyType(*head, type_table))?;
-                        for t in tail {
-                            write!(f, ", {}", PrettyType(*t, type_table))?;
-                        };
-                    },
-                    [] => {}
+                if !arg_types.is_empty() {
+                    write!(f, "{}", PrettyType(arg_types[0], type_table))?;
+                    for t in &arg_types[1..] {
+                        write!(f, ", {}", PrettyType(*t, type_table))?;
+                    };
                 };
                 write!(f, ")")?;
             },

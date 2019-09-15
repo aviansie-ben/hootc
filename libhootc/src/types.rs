@@ -46,14 +46,14 @@ impl <'a> fmt::Display for PrettyType<'a> {
                 Type::Tuple(ref types) => {
                     write!(f, "(")?;
 
-                    match &types[..] {
-                        [] => {},
-                        [ t ] => {
-                            write!(f, "{},", PrettyType(*t, table))?;
+                    match types.len() {
+                        0 => {},
+                        1 => {
+                            write!(f, "{},", PrettyType(types[0], table))?;
                         },
-                        [ head, tail.. ] => {
-                            write!(f, "{}", PrettyType(*head, table))?;
-                            for t in tail {
+                        _ => {
+                            write!(f, "{}", PrettyType(types[0], table))?;
+                            for t in &types[1..] {
                                 write!(f, ", {}", PrettyType(*t, table))?;
                             };
                         }
@@ -64,14 +64,11 @@ impl <'a> fmt::Display for PrettyType<'a> {
                 Type::Func(ret_type, ref arg_types) => {
                     write!(f, "fn (")?;
 
-                    match &arg_types[..] {
-                        [ head, tail.. ] => {
-                            write!(f, "{}", PrettyType(*head, table))?;
-                            for t in tail {
-                                write!(f, ", {}", PrettyType(*t, table))?;
-                            };
-                        },
-                        [] => {}
+                    if !arg_types.is_empty() {
+                        write!(f, "{}", PrettyType(arg_types[0], table))?;
+                        for t in &arg_types[1..] {
+                            write!(f, ", {}", PrettyType(*t, table))?;
+                        };
                     };
 
                     write!(f, ") : {}", PrettyType(ret_type, table))?;
@@ -85,14 +82,11 @@ impl <'a> fmt::Display for PrettyType<'a> {
 
                     write!(f, "fn {}(", sym_id)?;
 
-                    match &arg_types[..] {
-                        [ head, tail.. ] => {
-                            write!(f, "{}", PrettyType(*head, table))?;
-                            for t in tail {
-                                write!(f, ", {}", PrettyType(*t, table))?;
-                            };
-                        },
-                        [] => {}
+                    if !arg_types.is_empty() {
+                        write!(f, "{}", PrettyType(arg_types[0], table))?;
+                        for t in &arg_types[1..] {
+                            write!(f, ", {}", PrettyType(*t, table))?;
+                        };
                     };
 
                     write!(f, ") : {}", PrettyType(ret_type, table))?;
@@ -100,17 +94,9 @@ impl <'a> fmt::Display for PrettyType<'a> {
                 Type::Undecided(ref possible_types) => {
                     write!(f, "<any of ")?;
 
-                    match &possible_types[..] {
-                        [ first, second ] => {
-                            write!(f, "{} or {}", PrettyType(*first, table), PrettyType(*second, table))?;
-                        },
-                        [ head.., tail ] => {
-                            for t in head {
-                                write!(f, "{}, ", PrettyType(*t, table))?;
-                            };
-                            write!(f, "or {}", PrettyType(*tail, table))?;
-                        },
-                        _ => unreachable!()
+                    write!(f, "{}", PrettyType(possible_types[0], table))?;
+                    for t in &possible_types[1..] {
+                        write!(f, ", {}", PrettyType(*t, table))?;
                     };
 
                     write!(f, ">")?;
