@@ -2,10 +2,10 @@ use std::io::Write;
 
 use crate::sharedio::SharedWrite;
 
-pub struct Log<'a>(pub Option<&'a mut Write>);
+pub struct Log<'a>(pub Option<&'a mut dyn Write>);
 
 impl <'a> Log<'a> {
-    pub fn try_unwrap(&mut self) -> Option<&mut Write> {
+    pub fn try_unwrap(&mut self) -> Option<&mut dyn Write> {
         if let Some(ref mut w) = self.0 {
             Some(*w)
         } else {
@@ -14,7 +14,7 @@ impl <'a> Log<'a> {
     }
 
     #[deprecated]
-    pub fn unwrap(&mut self) -> &mut Write {
+    pub fn unwrap(&mut self) -> &mut dyn Write {
         self.try_unwrap().unwrap()
     }
 

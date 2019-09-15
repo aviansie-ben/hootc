@@ -171,9 +171,9 @@ impl <'a, 'b, T: Copy + Eq> Drop for SpillAll<'a, 'b, T> {
     }
 }
 
-pub struct UndirtyAll<'a, T: Copy + Eq>(&'a mut [(IlRegister, T, bool)], &'a mut [(IlRegister, T, bool)]);
+pub struct UndirtyAll<'a, T: Copy + Eq + 'static>(&'a mut [(IlRegister, T, bool)], &'a mut [(IlRegister, T, bool)]);
 
-impl <'a, T: Copy + Eq> Iterator for UndirtyAll<'a, T> {
+impl <'a, T: Copy + Eq + 'static> Iterator for UndirtyAll<'a, T> {
     type Item = (T, IlRegister);
 
     fn next(&mut self) -> Option<(T, IlRegister)> {
@@ -205,7 +205,7 @@ impl <'a, T: Copy + Eq> Iterator for UndirtyAll<'a, T> {
     }
 }
 
-impl <'a, T: Copy + Eq> Drop for UndirtyAll<'a, T> {
+impl <'a, T: Copy + Eq + 'static> Drop for UndirtyAll<'a, T> {
     fn drop(&mut self) {
         for _ in self {};
     }

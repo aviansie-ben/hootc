@@ -223,7 +223,8 @@ impl TypeTable {
 
         match (a_type, b_type) {
             (Type::Undecided(ref a_types), Type::Undecided(ref b_types)) => {
-                let t = self.get_or_add_undecided_type(a_types.iter().chain(b_types).cloned().collect());
+                let types = a_types.iter().chain(b_types).cloned().collect();
+                let t = self.get_or_add_undecided_type(types);
 
                 if t.is_error() {
                     None
