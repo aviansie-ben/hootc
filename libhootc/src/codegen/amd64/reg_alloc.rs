@@ -693,6 +693,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                 XDest::Reg(DestRegister(RealRegister::None, None, Some(dest))),
                 XSrc::Reg(SrcRegister(RealRegister::None, Some(src)))
             ) if self.rc.get(src) == 1 => {
+                self.allocate_and_lock(src, true, span, code_out, log);
                 let (real, _) = self.base.free(src);
 
                 log_writeln!(log, "  Copy from now-dead {} to {} within {} is nopped", src, dest, real.name_qword());
