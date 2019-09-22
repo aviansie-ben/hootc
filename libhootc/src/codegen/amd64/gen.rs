@@ -403,7 +403,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
 
             ctx.code.push(Instruction::new(
                 InstructionKind::Test(
-                    RegisterSize::DWord,
+                    RegisterSize::Byte,
                     XSrc::Reg(SrcRegister::virt(cond)),
                     XSrc::Reg(SrcRegister::virt(cond))
                 ),
@@ -423,7 +423,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
 
             ctx.code.push(Instruction::new(
                 InstructionKind::Test(
-                    RegisterSize::DWord,
+                    RegisterSize::Byte,
                     XSrc::Reg(SrcRegister::virt(cond)),
                     XSrc::Reg(SrcRegister::virt(cond))
                 ),
