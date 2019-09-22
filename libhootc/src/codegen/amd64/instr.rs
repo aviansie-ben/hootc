@@ -839,6 +839,13 @@ impl InstructionKind {
             InstructionKind::RegIn(_) => false
         }
     }
+
+    pub fn is_label(&self) -> bool {
+        match *self {
+            InstructionKind::Label(_) => true,
+            _ => false
+        }
+    }
 }
 
 pub struct Instruction {
@@ -852,21 +859,22 @@ impl Instruction {
         Instruction { node, span, rc: 0 }
     }
 
-    pub fn pretty(&self) -> PrettyInstruction {
-        PrettyInstruction(self)
+    pub fn pretty<'a>(&'a self, label_prefix: &'a str) -> PrettyInstruction<'a> {
+        PrettyInstruction(self, label_prefix)
     }
 }
 
-pub struct PrettyInstruction<'a>(&'a Instruction);
+pub struct PrettyInstruction<'a>(&'a Instruction, &'a str);
 
 impl <'a> fmt::Display for PrettyInstruction<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0.node {
+        let PrettyInstruction(instr, label_prefix) = *self;
+        match instr.node {
             InstructionKind::RemovableNop => {
                 write!(f, "nop # Removable")?;
             },
             InstructionKind::Label(label) => {
-                write!(f, ".{}:", label)?;
+                write!(f, ".{}{}:", label_prefix, label)?;
             },
             InstructionKind::IMul(size, ref dest, ref src) => {
                 write!(f, "imul {}, {}", dest.pretty(size), src.pretty(size))?;
@@ -926,10 +934,10 @@ impl <'a> fmt::Display for PrettyInstruction<'a> {
                 write!(f, "lea {}, {}", dest.pretty(size), src.pretty(size))?;
             },
             InstructionKind::Jump(label) => {
-                write!(f, "jmp .{}", label)?;
+                write!(f, "jmp .{}{}", label_prefix, label)?;
             },
             InstructionKind::JumpConditional(cond, label) => {
-                write!(f, "j{} .{}", cond.name(), label)?;
+                write!(f, "j{} .{}{}", cond.name(), label_prefix, label)?;
             },
             InstructionKind::SetCondition(cond, ref dest) => {
                 write!(f, "set{} {}", cond.name(), dest.pretty(RegisterSize::Byte))?;

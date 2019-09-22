@@ -3,6 +3,7 @@ pub mod gen;
 pub mod instr;
 pub mod peephole;
 pub mod reg_alloc;
+pub mod write;
 
 use crate::il::{IlRegisterAllocator, IlRegisterMap};
 use crate::sym::SymId;

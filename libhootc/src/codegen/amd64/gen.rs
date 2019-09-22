@@ -396,7 +396,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        log_writeln!(log, "{}", instr_out.pretty());
+        log_writeln!(log, "{}", instr_out.pretty(""));
     };
 
     log_writeln!(log);
@@ -473,7 +473,7 @@ fn generate_code_for_end_instr(instr: &IlEndingInstruction, ctx: &mut CodeGenCon
     };
 
     for instr_out in ctx.code[old_len..].iter() {
-        log_writeln!(log, "{}", instr_out.pretty());
+        log_writeln!(log, "{}", instr_out.pretty(""));
     };
 
     log_writeln!(log);
@@ -486,7 +486,7 @@ fn generate_code_for_block(block: &IlBlock, ctx: &mut CodeGenContext, log: &mut 
     ));
 
     log_writeln!(log, "# Block {}", block.id);
-    log_writeln!(log, "{}\n", ctx.code.last().unwrap().pretty());
+    log_writeln!(log, "{}\n", ctx.code.last().unwrap().pretty(""));
 
     for instr in block.instrs.iter() {
         generate_code_for_instr(instr, ctx, log);
