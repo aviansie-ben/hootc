@@ -494,3 +494,52 @@ pub fn do_pre_ra_peephole(func: &mut Function, log: &mut Log) {
         };
     };
 }
+
+fn post_ra_peephole_1(instrs: &mut [Instruction], log: &mut Log) -> bool {
+    match instrs {
+        [i0, ..] => match &mut i0.node {
+            &mut InstructionKind::Mov(
+                sz,
+                XDest::Reg(DestRegister(reg, _, dst_virt)),
+                XSrc::Imm(0)
+            ) => {
+                log_writeln!(log, "Turning MOV {}, 0 into XOR", reg.name(sz));
+
+                i0.node = InstructionKind::Xor(
+                    if sz == RegisterSize::QWord {
+                        RegisterSize::DWord
+                    } else {
+                        sz
+                    },
+                    XDest::Reg(DestRegister(reg, None, dst_virt)),
+                    XSrc::Reg(SrcRegister(reg, dst_virt))
+                );
+
+                true
+            },
+            _ => false
+        },
+        _ => false
+    }
+}
+
+pub fn do_post_ra_peephole(func: &mut Function, log: &mut Log) {
+    log_writeln!(log, "\n===== POST REGISTER ALLOCATION PEEPHOLES ON {} =====\n", func.sym);
+
+    loop {
+        remove_unused_labels(&mut func.instrs, log);
+        recalculate_rc(&mut func.instrs);
+
+        let mut changed = false;
+
+        for i in 0..func.instrs.len() {
+            let code = &mut func.instrs[i..];
+
+            changed = post_ra_peephole_1(code, log) || changed;
+        };
+
+        if !changed {
+            break;
+        };
+    }
+}

@@ -56,9 +56,10 @@ fn main() {
     for (_, f) in program.funcs {
         let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut log);
         lib::codegen::amd64::peephole::do_pre_ra_peephole(&mut code, &mut log);
-        let code = lib::codegen::amd64::reg_alloc::RegisterAllocator::new(
+        let mut code = lib::codegen::amd64::reg_alloc::RegisterAllocator::new(
             lib::codegen::amd64::calling_convention::SysVCallingConvention()
         ).allocate(code, &mut log);
+        lib::codegen::amd64::peephole::do_post_ra_peephole(&mut code, &mut log);
 
         println!("\n");
         for instr in code.instrs.iter() {
