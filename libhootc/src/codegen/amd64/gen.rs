@@ -369,7 +369,7 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
             ));
         },
         PrintI32(_) => unimplemented!(),
-        Call(_, _, _, _) => unimplemented!()
+        Call(_, _, _, _, _) => unimplemented!()
     };
 
     for instr_out in ctx.code[old_len..].iter() {

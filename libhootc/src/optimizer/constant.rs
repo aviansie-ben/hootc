@@ -651,7 +651,7 @@ pub fn eliminate_tail_calls(func: &mut IlFunction, structs: &mut AnalysisStructu
         };
 
         let (span, (tgt, params, callee)) = if let Some(last_instr) = block.instrs.last() {
-            (last_instr.span, if let IlInstructionKind::Call(tgt, ref params, callee, _) = last_instr.node {
+            (last_instr.span, if let IlInstructionKind::Call(tgt, ref params, callee, _, _) = last_instr.node {
                 (tgt, params, callee)
             } else {
                 continue;

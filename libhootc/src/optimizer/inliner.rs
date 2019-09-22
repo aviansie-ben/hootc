@@ -67,7 +67,7 @@ pub fn generate_inline_site(
             instr.span = map_span(instr.span, callee, &mut span_map, &mut spans);
 
             match instr.node {
-                IlInstructionKind::Call(_, _, _, ref mut depth) => {
+                IlInstructionKind::Call(_, _, _, ref mut depth, _) => {
                     *depth += 1;
                 },
                 _ => {}
@@ -127,7 +127,7 @@ pub fn do_inlining_decision_phase(prog: &IlProgram, func: &IlFunction, sites: &m
 
         for (i, instr) in block.instrs.iter().enumerate() {
             let callee = match instr.node {
-                IlInstructionKind::Call(_, _, callee, depth) => {
+                IlInstructionKind::Call(_, _, callee, depth, _) => {
                     if depth >= MAX_INLINE_DEPTH {
                         continue;
                     };

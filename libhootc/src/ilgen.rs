@@ -124,7 +124,8 @@ fn generate_direct_call_il<'a>(
     b: &mut IlBuilder,
     ctx: &mut IlGenContext
 ) -> IlRegister {
-    let func_id = match ctx.syms.find(func).node {
+    let sym = ctx.syms.find(func);
+    let func_id = match sym.node {
         SymDefKind::Function(ref func_id) => func_id,
         _ => unreachable!()
     };
@@ -220,12 +221,22 @@ fn generate_direct_call_il<'a>(
 
     match *func_id {
         FunctionId::UserDefined(_) | FunctionId::External(_) => {
+            let result_ty = match *ctx.types.find_type(sym.ty) {
+                Type::Func(result_ty, _) => result_ty,
+                Type::FuncKnown(_, func_ty) => match *ctx.types.find_type(func_ty) {
+                    Type::Func(result_ty, _) => result_ty,
+                    _ => unreachable!()
+                },
+                _ => unreachable!()
+            };
+
             b.append_instruction(
                 IlInstructionKind::Call(
                     tgt,
                     args.into_iter().map(IlOperand::Register).collect(),
                     func,
-                    0
+                    0,
+                    map_to_il_type(result_ty, ctx.types)
                 ),
                 span
             );

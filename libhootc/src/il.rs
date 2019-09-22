@@ -73,6 +73,17 @@ pub enum IlType {
     Void
 }
 
+impl fmt::Display for IlType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            IlType::I1 => write!(f, "i1"),
+            IlType::I32 => write!(f, "i32"),
+            IlType::Addr => write!(f, "a"),
+            IlType::Void => write!(f, "void")
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IlConst {
     I1(bool),
@@ -130,7 +141,7 @@ pub enum IlInstructionKind {
     NeI1(IlRegister, IlOperand, IlOperand),
     NeI32(IlRegister, IlOperand, IlOperand),
     PrintI32(IlOperand),
-    Call(IlRegister, Vec<IlOperand>, SymId, u8)
+    Call(IlRegister, Vec<IlOperand>, SymId, u8, IlType)
 }
 
 impl fmt::Display for IlInstructionKind {
@@ -151,12 +162,12 @@ impl fmt::Display for IlInstructionKind {
             NeI1(ref tgt, ref o1, ref o2) => write!(f, "ne.i1 {} {} {}", tgt, o1, o2),
             NeI32(ref tgt, ref o1, ref o2) => write!(f, "ne.i32 {} {} {}", tgt, o1, o2),
             PrintI32(ref o) => write!(f, "print.i32 {}", o),
-            Call(ref tgt, ref os, ref func, ref depth) => {
+            Call(ref tgt, ref os, ref func, ref depth, ref ty) => {
                 write!(f, "call {}", tgt)?;
                 for o in os {
                     write!(f, " {}", o)?;
                 };
-                write!(f, " {} [depth: {}]", func, depth)?;
+                write!(f, " {} [depth: {}] [ty: {}]", func, depth, ty)?;
                 Result::Ok(())
             }
         }
@@ -181,7 +192,7 @@ impl IlInstructionKind {
             NeI1(tgt, _, _) => Some(tgt),
             NeI32(tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
-            Call(tgt, _, _, _) => Some(tgt)
+            Call(tgt, _, _, _, _) => Some(tgt)
         }
     }
 
@@ -202,7 +213,7 @@ impl IlInstructionKind {
             NeI1(ref mut tgt, _, _) => Some(tgt),
             NeI32(ref mut tgt, _, _) => Some(tgt),
             PrintI32(_) => None,
-            Call(ref mut tgt, _, _, _) => Some(tgt)
+            Call(ref mut tgt, _, _, _, _) => Some(tgt)
         }
     }
 
@@ -257,7 +268,7 @@ impl IlInstructionKind {
             PrintI32(ref o) => {
                 f(o);
             },
-            Call(_, ref os, _, _) => {
+            Call(_, ref os, _, _, _) => {
                 os.iter().for_each(f);
             }
         };
@@ -314,7 +325,7 @@ impl IlInstructionKind {
             PrintI32(ref mut o) => {
                 f(o);
             },
-            Call(_, ref mut os, _, _) => {
+            Call(_, ref mut os, _, _, _) => {
                 os.iter_mut().for_each(f);
             }
         };
@@ -324,7 +335,7 @@ impl IlInstructionKind {
         use self::IlInstructionKind::*;
         match *self {
             PrintI32(_) => false,
-            Call(_, _, _, _) => false,
+            Call(_, _, _, _, _) => false,
             _ => true
         }
     }
@@ -334,7 +345,7 @@ impl IlInstructionKind {
         match *self {
             Copy(_, _) => false,
             PrintI32(_) => false,
-            Call(_, _, _, _) => false,
+            Call(_, _, _, _, _) => false,
             _ => true
         }
     }
@@ -343,7 +354,7 @@ impl IlInstructionKind {
         use self::IlInstructionKind::*;
         match *self {
             PrintI32(_) => true,
-            Call(_, _, _, _) => true,
+            Call(_, _, _, _, _) => true,
             _ => false
         }
     }
@@ -390,7 +401,7 @@ impl IlInstructionKind {
             // The inliner will use span ids to differentiate between inlined sites. As a result, we
             // must ensure that each call instruction gets a different span id, lest the inliner
             // become confused.
-            Call(_, _, _, _) => true,
+            Call(_, _, _, _, _) => true,
             _ => false
         }
     }
