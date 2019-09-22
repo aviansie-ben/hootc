@@ -1,21 +1,24 @@
 use std::io::{self, Write};
 
-use crate::il::{IlFunction, IlSpanId};
+use crate::il::{IlFunction, IlRegisterType, IlSpanId};
 use crate::sym::SymDefTable;
+use crate::types::{PrettyType, Type, TypeId, TypeTable};
 use super::Function;
 
 pub struct WriteContext<'a> {
     pub files: Vec<String>,
     pub debug_strs: Vec<String>,
-    pub sym_defs: &'a SymDefTable
+    pub sym_defs: &'a SymDefTable,
+    pub types: &'a TypeTable
 }
 
 impl <'a> WriteContext<'a> {
-    pub fn new(sym_defs: &'a SymDefTable) -> WriteContext<'a> {
+    pub fn new(sym_defs: &'a SymDefTable, types: &'a TypeTable) -> WriteContext<'a> {
         WriteContext {
             files: vec![],
             debug_strs: vec![],
-            sym_defs
+            sym_defs,
+            types
         }
     }
 
@@ -45,7 +48,7 @@ pub fn write_start_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
 
     writeln!(out, ".section .debug_abbrev,\"\",@progbits")?;
 
-    // ABBREVIATION 0x01:
+    // ABBREVIATION 0x01
     writeln!(out, "  .byte 0x01")?;
 
     //   DW_TAG_compile_unit
@@ -83,13 +86,137 @@ pub fn write_start_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
     writeln!(out, "  .byte 0")?;
     writeln!(out, "  .byte 0")?;
 
+    // ABBREVIATION 0x02
+    writeln!(out, "  .byte 0x02")?;
+
+    //   DW_TAG_base_type
+    writeln!(out, "  .byte 0x24")?;
+
+    //   DW_CHILDREN_no
+    writeln!(out, "  .byte 0")?;
+
+    //   DW_AT_name
+    //     DW_FORM_strp
+    writeln!(out, "  .byte 0x03")?;
+    writeln!(out, "  .byte 0x0e")?;
+
+    //   DW_AT_encoding
+    //     DW_FORM_data1
+    writeln!(out, "  .byte 0x3e")?;
+    writeln!(out, "  .byte 0x0b")?;
+
+    // DW_AT_byte_size
+    writeln!(out, "  .byte 0x0b")?;
+    writeln!(out, "  .byte 0x0b")?;
+
+    // END OF ABBREVIATION 0x02
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
+    // ABBREVIATION 0x03
+    writeln!(out, "  .byte 0x03")?;
+
+    //   DW_TAG_unspecified_type
+    writeln!(out, "  .byte 0x3b")?;
+
+    //   DW_CHILDREN_no
+    writeln!(out, "  .byte 0")?;
+
+    //   DW_AT_name
+    //     DW_FORM_strp
+    writeln!(out, "  .byte 0x03")?;
+    writeln!(out, "  .byte 0x0e")?;
+
+    // END OF ABBREVIATION 0x03
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
+    // ABBREVIATION 0x04
+    writeln!(out, "  .byte 0x04")?;
+
+    //   DW_TAG_typedef
+    writeln!(out, "  .byte 0x16")?;
+
+    //   DW_CHILDREN_no
+    writeln!(out, "  .byte 0")?;
+
+    //   DW_AT_name
+    //     DW_FORM_strp
+    writeln!(out, "  .byte 0x03")?;
+    writeln!(out, "  .byte 0x0e")?;
+
+    //   DW_AT_type
+    //     DW_FORM_ref4
+    writeln!(out, "  .byte 0x49")?;
+    writeln!(out, "  .byte 0x13")?;
+
+    // END OF ABBREVIATION 0x04
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
+    // ABBREVIATION 0x05
+    writeln!(out, "  .byte 0x05")?;
+
+    //   DW_TAG_subprogram
+    writeln!(out, "  .byte 0x2e")?;
+
+    //   DW_CHILDREN_yes
+    writeln!(out, "  .byte 1")?;
+
+    //   DW_AT_name
+    //     DW_FORM_strp
+    writeln!(out, "  .byte 0x03")?;
+    writeln!(out, "  .byte 0x0e")?;
+
+    //   DW_AT_type
+    //     DW_FORM_ref4
+    writeln!(out, "  .byte 0x49")?;
+    writeln!(out, "  .byte 0x13")?;
+
+    //   DW_AT_low_pc
+    //     DW_FORM_addr
+    writeln!(out, "  .byte 0x11")?;
+    writeln!(out, "  .byte 0x01")?;
+
+    //   DW_AT_high_pc
+    //     DW_FORM_data4
+    writeln!(out, "  .byte 0x12")?;
+    writeln!(out, "  .byte 0x06")?;
+
+    // END OF ABBREVIATION 0x05
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
+    // ABBREVIATION 0x06
+    writeln!(out, "  .byte 0x06")?;
+
+    //   DW_TAG_formal_parameter
+    writeln!(out, "  .byte 0x05")?;
+
+    //   DW_CHILDREN_no
+    writeln!(out, "  .byte 0")?;
+
+    //   DW_AT_name
+    //     DW_FORM_strp
+    writeln!(out, "  .byte 0x03")?;
+    writeln!(out, "  .byte 0x0e")?;
+
+    //   DW_AT_type
+    //     DW_FORM_ref4
+    writeln!(out, "  .byte 0x49")?;
+    writeln!(out, "  .byte 0x13")?;
+
+    // END OF ABBREVIATION 0x06
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
     // END OF ABBREVIATIONS
     writeln!(out, "  .byte 0")?;
 
     writeln!(out)?;
     writeln!(out, ".section .debug_info,\"\",@progbits")?;
-    writeln!(out, "  .long .Ldebug_info_end-.Ldebug_info_start")?;
     writeln!(out, ".Ldebug_info_start:")?;
+    writeln!(out, "  .long .Ldebug_info_end-.Ldebug_info_start-4")?;
     writeln!(out, "  .short 4")?;
     writeln!(out, "  .long .debug_abbrev")?;
     writeln!(out, "  .byte 8")?;
@@ -114,6 +241,126 @@ pub fn write_start_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
 
     writeln!(out, ".text")?;
     writeln!(out, ".Lcu_text_start:")?;
+
+    Result::Ok(())
+}
+
+pub fn write_types_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io::Result<()> {
+    writeln!(out, ".section .debug_info,\"\",@progbits")?;
+
+    for i in 0..(ctx.types.num_types()) {
+        let ty = ctx.types.find_type(TypeId(i));
+
+        writeln!(out, ".Ldebug_type_{}:", i)?;
+
+        match ty {
+            Type::Error => {
+                // DW_tag_unspecified_type
+                writeln!(out, "  .byte 0x03")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str("<error type>"))?;
+            },
+            Type::Bool => {
+                // DW_tag_base_type
+                writeln!(out, "  .byte 0x02")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str("bool"))?;
+
+                // DW_AT_encoding
+                //   DW_ATE_boolean
+                writeln!(out, "  .byte 0x02")?;
+
+                // DW_AT_byte_size
+                writeln!(out, "  .byte 0x01")?;
+            },
+            Type::I32 => {
+                // DW_tag_base_type
+                writeln!(out, "  .byte 0x02")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str("i32"))?;
+
+                // DW_AT_encoding
+                //   DW_ATE_signed
+                writeln!(out, "  .byte 0x05")?;
+
+                // DW_AT_byte_size
+                writeln!(out, "  .byte 0x04")?;
+            },
+            Type::Tuple(ref component_tys) => match component_tys.len() {
+                0 => {
+                    // DW_tag_base_type
+                    writeln!(out, "  .byte 0x02")?;
+
+                    // DW_AT_name
+                    writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str("()"))?;
+
+                    // DW_AT_encoding
+                    //   DW_ATE_unsigned
+                    writeln!(out, "  .byte 0x07")?;
+
+                    // DW_AT_byte_size
+                    writeln!(out, "  .byte 0x00")?;
+                },
+                1 => {
+                    // DW_tag_base_type
+                    writeln!(out, "  .byte 0x04")?;
+
+                    // DW_AT_name
+                    writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(
+                        &format!("{}", PrettyType(TypeId(i), ctx.types))
+                    ))?;
+
+                    // DW_AT_type
+                    writeln!(out, "  .long .Ldebug_type_{}-.Ldebug_info_start", component_tys[0].0)?;
+
+                    // DW_AT_byte_size
+                    writeln!(out, "  .byte 0x00")?;
+                },
+                _ => {
+                    // TODO: Implement this
+                    // DW_tag_unspecified_type
+                    writeln!(out, "  .byte 0x03")?;
+
+                    // DW_AT_name
+                    writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(
+                        &format!("{}", PrettyType(TypeId(i), ctx.types))
+                    ))?;
+                }
+            },
+            Type::Func(_, _) => {
+                // TODO: Implement this
+                // DW_tag_unspecified_type
+                writeln!(out, "  .byte 0x03")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(
+                    &format!("{}", PrettyType(TypeId(i), ctx.types))
+                ))?;
+            },
+            Type::FuncKnown(_, _) => {
+                // TODO: Implement this
+                // DW_tag_unspecified_type
+                writeln!(out, "  .byte 0x03")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(
+                    &format!("{}", PrettyType(TypeId(i), ctx.types))
+                ))?;
+            },
+            Type::Undecided(_) => {
+                // DW_tag_unspecified_type
+                writeln!(out, "  .byte 0x03")?;
+
+                // DW_AT_name
+                writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(
+                    &format!("{}", PrettyType(TypeId(i), ctx.types))
+                ))?;
+            }
+        };
+    };
 
     Result::Ok(())
 }
@@ -147,6 +394,55 @@ pub fn write_fn_to_file<T: Write>(out: &mut T, func: &Function, il: &IlFunction,
 
     writeln!(out, ".{}Lend_func:", label_prefix)?;
     writeln!(out, ".size {}, .{}Lend_func-{}", func_name, label_prefix, func_name)?;
+
+    writeln!(out)?;
+    writeln!(out, ".section .debug_info,\"\",@progbits")?;
+
+    let sym = ctx.sym_defs.find(il.sym);
+    let return_ty = match *ctx.types.find_type(sym.ty) {
+        Type::FuncKnown(_, fn_ty) => match *ctx.types.find_type(fn_ty) {
+            Type::Func(return_ty, _) => return_ty,
+            _ => unreachable!()
+        },
+        _ => unreachable!()
+    };
+
+    let param_syms: Vec<_> = func.reg_map.params().iter().map(|&r| {
+        let sym = match func.reg_map.get_reg_info(r).0 {
+            IlRegisterType::Param(sym, _) => sym,
+            _ => unreachable!()
+        };
+
+        ctx.sym_defs.find(sym)
+    }).collect();
+
+    // DW_TAG_subprogram
+    writeln!(out, "  .byte 0x05")?;
+
+    // DW_AT_name
+    writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(func_name))?;
+
+    // DW_AT_type
+    writeln!(out, "  .long .Ldebug_type_{}-.Ldebug_info_start", return_ty.0)?;
+
+    // DW_AT_low_pc
+    writeln!(out, "  .quad {}", func_name)?;
+
+    // DW_AT_high_pc
+    writeln!(out, "  .long .{}Lend_func-{}", label_prefix, func_name)?;
+
+    for param_sym in param_syms {
+        // DW_TAG_formal_parameter
+        writeln!(out, "  .byte 0x06")?;
+
+        // DW_AT_name
+        writeln!(out, "  .long .Ldebug_str_{}", ctx.add_debug_str(&param_sym.name))?;
+
+        // DW_AT_type
+        writeln!(out, "  .long .Ldebug_type_{}-.Ldebug_info_start", param_sym.ty.0)?;
+    };
+
+    writeln!(out, "  .byte 0")?;
 
     Result::Ok(())
 }

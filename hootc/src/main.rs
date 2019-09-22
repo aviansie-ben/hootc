@@ -62,11 +62,12 @@ fn main() {
     lib::optimizer::optimize_program(&mut program, &mut log);
 
     let mut out = std::fs::File::create(std::path::Path::new(&args[2])).unwrap();
-    let mut ctx = lib::codegen::amd64::write::WriteContext::new(&module.syms);
+    let mut ctx = lib::codegen::amd64::write::WriteContext::new(&module.syms, &module.types);
 
     let fileno = ctx.add_file(input_filename.to_str().unwrap(), &mut out).unwrap();
 
     lib::codegen::amd64::write::write_start_to_file(&mut out, &mut ctx).unwrap();
+    lib::codegen::amd64::write::write_types_to_file(&mut out, &mut ctx).unwrap();
 
     for (_, f) in program.funcs {
         let mut code = lib::codegen::amd64::gen::generate_code(&f, &mut log);
