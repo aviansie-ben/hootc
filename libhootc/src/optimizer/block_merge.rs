@@ -269,23 +269,17 @@ pub fn rewrite_jump_targets(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId
 }
 
 pub fn do_merge_blocks_group(func: &mut IlFunction, cfg: &mut FlowGraph<IlBlockId>, log: &mut Log) -> bool {
-    eliminate_dead_blocks(func, cfg, log);
-
-    let mut cont = merge_blocks(func, cfg, log) != 0;
-    cont = eliminate_redundant_jumps(func, cfg, log) != 0 || cont;
-    cont = propagate_end_instr(func, cfg, log) != 0 || cont;
-    cont = rewrite_jump_targets(func, cfg, log) != 0 || cont;
-
-    if !cont {
-        return false;
-    };
+    let mut made_changes = false;
+    let mut cont = true;
 
     while cont {
-        eliminate_dead_blocks(func, cfg, log);
-        cont = merge_blocks(func, cfg, log) != 0;
+        cont = eliminate_dead_blocks(func, cfg, log) != 0;
+        cont = merge_blocks(func, cfg, log) != 0 || cont;
         cont = eliminate_redundant_jumps(func, cfg, log) != 0 || cont;
         cont = propagate_end_instr(func, cfg, log) != 0 || cont;
         cont = rewrite_jump_targets(func, cfg, log) != 0 || cont;
+
+        made_changes = made_changes || cont;
     };
-    true
+    made_changes
 }

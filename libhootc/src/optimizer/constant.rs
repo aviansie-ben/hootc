@@ -710,40 +710,19 @@ pub fn do_constant_fold_group(
     structs: &mut AnalysisStructures,
     log: &mut Log
 ) -> bool {
-    structs.liveness.recompute_global_regs(func, log);
-    elide_copies(func, structs, log);
-
-    structs.ebbs.recompute(func, &structs.cfg, log);
-    propagate_copies_locally(func, structs, log);
-
-    structs.liveness.recompute_global_regs(func, log);
-    structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), log);
-    let mut cont = propagate_and_fold_constants(func, structs, log) != 0;
-
-    cont = eliminate_local_common_subexpressions(func, structs, log) != 0 || cont;
-
-    structs.liveness.recompute(func, &structs.cfg, log);
-    cont = eliminate_dead_stores(func, &mut structs.liveness, log) != 0 || cont;
-
-    cont = simplify_constant_jump_conditions(func, structs, log) != 0 || cont;
-    cont = simplify_algebraically(func, log) != 0 || cont;
-    cont = simplify_jump_conditions(func, log) != 0 || cont;
-    cont = eliminate_tail_calls(func, structs, log) != 0 || cont;
-
-    if !cont {
-        return false;
-    };
+    let mut made_changes = false;
+    let mut cont = true;
 
     while cont {
         structs.liveness.recompute_global_regs(func, log);
-        elide_copies(func, structs, log);
+        cont = elide_copies(func, structs, log) != 0;
 
         structs.ebbs.recompute(func, &structs.cfg, log);
-        propagate_copies_locally(func, structs, log);
+        cont = propagate_copies_locally(func, structs, log) != 0 || cont;
 
         structs.liveness.recompute_global_regs(func, log);
         structs.defs.recompute(func, &structs.cfg, structs.liveness.global_regs(), log);
-        cont = propagate_and_fold_constants(func, structs, log) != 0;
+        cont = propagate_and_fold_constants(func, structs, log) != 0 || cont;
 
         cont = eliminate_local_common_subexpressions(func, structs, log) != 0 || cont;
 
@@ -754,6 +733,7 @@ pub fn do_constant_fold_group(
         cont = simplify_algebraically(func, log) != 0 || cont;
         cont = simplify_jump_conditions(func, log) != 0 || cont;
         cont = eliminate_tail_calls(func, structs, log) != 0 || cont;
+        made_changes = made_changes || cont;
     };
-    true
+    made_changes
 }
