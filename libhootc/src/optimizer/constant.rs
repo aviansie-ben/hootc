@@ -214,6 +214,10 @@ pub fn elide_copies(func: &mut IlFunction, structs: &AnalysisStructures, log: &m
                         move_target == src
                     }).next();
 
+                    movable.drain_filter(|&mut (_, _, ref mut movable_instr)| {
+                        !movable_instr.node.can_move_across(&instr.node)
+                    });
+
                     if let Some((_, j, movable_instr)) = movable_instr {
                         move_candidates.push((target, src, i, instr, j, movable_instr));
                     };
