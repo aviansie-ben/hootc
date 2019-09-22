@@ -578,7 +578,7 @@ impl <T: CallingConvention> RegisterAllocator<T> {
         dest: &mut XDest,
         src: &mut XSrc,
         log: &mut Log
-    ) {
+    ) -> bool {
         match (dest, src) {
             (&mut XDest::Reg(DestRegister(RealRegister::None, Some(ref mut src1), Some(ref mut dest))),
                 &mut XSrc::Reg(SrcRegister(RealRegister::None, Some(ref mut src2)))) => {
@@ -594,9 +594,37 @@ impl <T: CallingConvention> RegisterAllocator<T> {
                     log_writeln!(log, "  Swapping sources to avoid moving registers");
                     mem::swap(src1, src2);
                 };
+                should_swap
             },
-            _ => {}
-        };
+            _ => false
+        }
+    }
+
+    fn try_commutate_dest_reg(
+        &mut self,
+        dest: &mut DestRegister,
+        src: &mut XSrc,
+        log: &mut Log
+    ) -> bool {
+        match (dest, src) {
+            (&mut DestRegister(RealRegister::None, Some(ref mut src1), Some(ref mut dest)),
+                &mut XSrc::Reg(SrcRegister(RealRegister::None, Some(ref mut src2)))) => {
+                let should_swap = if src2 == dest && src1 != dest {
+                    true
+                } else if self.rc.get(*src2) == 1 && self.rc.get(*src1) != 1 {
+                    true
+                } else {
+                    false
+                };
+
+                if should_swap {
+                    log_writeln!(log, "  Swapping sources to avoid moving registers");
+                    mem::swap(src1, src2);
+                };
+                should_swap
+            },
+            _ => false
+        }
     }
 
     fn allocate_for_instr(
@@ -709,6 +737,15 @@ impl <T: CallingConvention> RegisterAllocator<T> {
             InstructionKind::Mov(_, ref mut dest, ref mut src) => {
                 self.allocate_for_xsrc(src, span, code_out, to_free, log);
                 self.allocate_for_xdest(dest, span, code_out, to_free, log);
+            },
+            InstructionKind::MovConditional(_, ref mut cond, ref mut dest, ref mut src) => {
+                if self.try_commutate_dest_reg(dest, src, log) {
+                    *cond = cond.reverse();
+                    log_writeln!(log, "    Flipped condition to {}", cond.name());
+                };
+
+                self.allocate_for_xsrc(src, span, code_out, to_free, log);
+                self.allocate_for_dest_reg(dest, span, code_out, to_free, log);
             },
             InstructionKind::Shl(_, ref mut dest, src) => {
                 if let Some(src) = src {

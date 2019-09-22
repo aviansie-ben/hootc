@@ -91,6 +91,29 @@ fn generate_code_for_instr(instr: &IlInstruction, ctx: &mut CodeGenContext, log:
                 span
             ));
         },
+        Sel(tgt, ref cond, ref src1, ref src2) => {
+            let cond = generate_load_for_operand(cond, ctx, span);
+            let src1 = generate_load_for_operand(src1, ctx, span);
+            let src2 = generate_load_for_operand(src2, ctx, span);
+
+            ctx.code.push(Instruction::new(
+                InstructionKind::Test(
+                    RegisterSize::Byte,
+                    XSrc::Reg(SrcRegister::virt(cond)),
+                    XSrc::Reg(SrcRegister::virt(cond))
+                ),
+                instr.span
+            ));
+            ctx.code.push(Instruction::new(
+                InstructionKind::MovConditional(
+                    RegisterSize::DWord,
+                    Condition::Equal,
+                    DestRegister::virt(Some(src1), tgt),
+                    XSrc::Reg(SrcRegister::virt(src2))
+                ),
+                instr.span
+            ));
+        },
         NegI32(tgt, ref src) => {
             let src = generate_load_for_operand(src, ctx, span);
 

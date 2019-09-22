@@ -129,6 +129,7 @@ impl fmt::Display for IlOperand {
 pub enum IlInstructionKind {
     Nop,
     Copy(IlRegister, IlOperand),
+    Sel(IlRegister, IlOperand, IlOperand, IlOperand),
     NegI32(IlRegister, IlOperand),
     NotI1(IlRegister, IlOperand),
     NotI32(IlRegister, IlOperand),
@@ -150,6 +151,7 @@ impl fmt::Display for IlInstructionKind {
         match *self {
             Nop => write!(f, "nop"),
             Copy(ref tgt, ref o) => write!(f, "copy {} {}", tgt, o),
+            Sel(ref tgt, ref cnd, ref o1, ref o2) => write!(f, "sel {} {} {} {}", tgt, cnd, o1, o2),
             NegI32(ref tgt, ref o) => write!(f, "neg.i32 {} {}", tgt, o),
             NotI1(ref tgt, ref o) => write!(f, "not.i1 {} {}", tgt, o),
             NotI32(ref tgt, ref o) => write!(f, "not.i32 {} {}", tgt, o),
@@ -180,6 +182,7 @@ impl IlInstructionKind {
         match *self {
             Nop => None,
             Copy(tgt, _) => Some(tgt),
+            Sel(tgt, _, _, _) => Some(tgt),
             NegI32(tgt, _) => Some(tgt),
             NotI1(tgt, _) => Some(tgt),
             NotI32(tgt, _) => Some(tgt),
@@ -201,6 +204,7 @@ impl IlInstructionKind {
         match *self {
             Nop => None,
             Copy(ref mut tgt, _) => Some(tgt),
+            Sel(ref mut tgt, _, _, _) => Some(tgt),
             NegI32(ref mut tgt, _) => Some(tgt),
             NotI1(ref mut tgt, _) => Some(tgt),
             NotI32(ref mut tgt, _) => Some(tgt),
@@ -223,6 +227,11 @@ impl IlInstructionKind {
             Nop => {},
             Copy(_, ref o) => {
                 f(o);
+            },
+            Sel(_, ref cnd, ref o1, ref o2) => {
+                f(cnd);
+                f(o1);
+                f(o2);
             },
             NegI32(_, ref o) => {
                 f(o);
@@ -280,6 +289,11 @@ impl IlInstructionKind {
             Nop => {},
             Copy(_, ref mut o) => {
                 f(o);
+            },
+            Sel(_, ref mut cnd, ref mut o1, ref mut o2) => {
+                f(cnd);
+                f(o1);
+                f(o2);
             },
             NegI32(_, ref mut o) => {
                 f(o);

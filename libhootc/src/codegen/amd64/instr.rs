@@ -477,6 +477,7 @@ pub enum InstructionKind {
     Neg(RegisterSize, XDest),
     Not(RegisterSize, XDest),
     Mov(RegisterSize, XDest, XSrc),
+    MovConditional(RegisterSize, Condition, DestRegister, XSrc),
     Shl(RegisterSize, XDest, Option<IlRegister>),
     ShlI(RegisterSize, XDest, u8),
     XChgRR(RegisterSize, SrcRegister, SrcRegister),
@@ -584,6 +585,10 @@ impl InstructionKind {
                 call_for_xdest(f, dest);
                 call_for_xsrc(f, src);
             },
+            InstructionKind::MovConditional(_, _, ref dest, ref src) => {
+                call_for_dest_reg(f, dest);
+                call_for_xsrc(f, src);
+            },
             InstructionKind::Shl(_, ref dest, ref src) => {
                 call_for_xdest(f, dest);
                 if let Some(src) = *src {
@@ -669,6 +674,9 @@ impl InstructionKind {
             InstructionKind::Mov(_, ref dest, _) => {
                 call_for_xdest(f, dest);
             },
+            InstructionKind::MovConditional(_, _, ref dest, _) => {
+                call_for_dest_reg(f, dest);
+            },
             InstructionKind::Shl(_, ref dest, _) => {
                 call_for_xdest(f, dest);
             },
@@ -739,6 +747,9 @@ impl InstructionKind {
             InstructionKind::Mov(_, ref mut dest, ref mut src) => {
                 dest.as_mem_arg_mut().or(src.as_mem_arg_mut())
             },
+            InstructionKind::MovConditional(_, _, _, ref mut src) => {
+                src.as_mem_arg_mut()
+            },
             InstructionKind::Shl(_, ref mut dest, _) => {
                 dest.as_mem_arg_mut()
             },
@@ -780,6 +791,7 @@ impl InstructionKind {
             InstructionKind::Neg(_, _) => true,
             InstructionKind::Not(_, _) => false,
             InstructionKind::Mov(_, _, _) => false,
+            InstructionKind::MovConditional(_, _, _, _) => false,
             InstructionKind::Shl(_, _, _) => true,
             InstructionKind::ShlI(_, _, _) => true,
             InstructionKind::XChgRR(_, _, _) => false,
@@ -811,6 +823,7 @@ impl InstructionKind {
             InstructionKind::Neg(_, _) => false,
             InstructionKind::Not(_, _) => false,
             InstructionKind::Mov(_, _, _) => false,
+            InstructionKind::MovConditional(_, _, _, _) => true,
             InstructionKind::Shl(_, _, _) => false,
             InstructionKind::ShlI(_, _, _) => false,
             InstructionKind::XChgRR(_, _, _) => false,
@@ -887,6 +900,9 @@ impl <'a> fmt::Display for PrettyInstruction<'a> {
             },
             InstructionKind::Mov(size, ref dest, ref src) => {
                 write!(f, "mov {}, {}", dest.pretty(size), src.pretty(size))?;
+            },
+            InstructionKind::MovConditional(size, cond, ref dest, ref src) => {
+                write!(f, "cmov{} {}, {}", cond.name(), dest.pretty(size), src.pretty(size))?;
             },
             InstructionKind::Shl(size, ref dest, ref src) => {
                 write!(f, "shl {}, cl", dest.pretty(size))?;
