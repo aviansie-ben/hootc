@@ -36,21 +36,24 @@ pub fn generate_inline_site(
     let return_reg = callee.reg_alloc.next();
 
     fn map_span(
-        span: IlSpanId,
+        id: IlSpanId,
         func: &IlFunction,
         span_map: &mut HashMap<IlSpanId, IlSpanId>,
         spans: &mut IlSpanMap
     ) -> IlSpanId {
-        if span == IlSpanId::dummy() {
+        if id == IlSpanId::dummy() {
             return IlSpanId::dummy();
-        } else if let Some(&span) = span_map.get(&span) {
+        } else if let Some(&span) = span_map.get(&id) {
             return span;
         };
 
         let (span, inlined_at) = func.spans.get(span);
         let inlined_at = map_span(inlined_at, func, span_map, spans);
 
-        spans.force_append(span, inlined_at)
+        let new_id = spans.force_append(span, inlined_at);
+
+        span_map.insert(id, new_id);
+        new_id
     }
 
     let end_block = IlBlockId((callee.block_order.len() + 1) as u32);
@@ -197,7 +200,7 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
             func.spans.force_append(span, if inlined_at == IlSpanId::dummy() {
                 inline_span
             } else {
-                inlined_at
+                IlSpanId(inlined_at.0 + first_inline_span.0)
             });
         };
 
@@ -279,5 +282,5 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
         });
     };
 
-    log_writeln!(log, "\n===== AFTER INLINING EXPANSION =====\n\n{}", func);
+    log_writeln!(log, "\n===== AFTER INLINING EXPANSION =====\n\n{}\n{}", func, func.spans);
 }
