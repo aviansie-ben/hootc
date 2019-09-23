@@ -47,10 +47,10 @@ pub fn generate_inline_site(
             return span;
         };
 
-        let (span, inlined_at) = func.spans.get(span);
+        let (span, inlined_at, call_site) = func.spans.get(id);
         let inlined_at = map_span(inlined_at, func, span_map, spans);
 
-        let new_id = spans.force_append(span, inlined_at);
+        let new_id = spans.force_append(span, inlined_at, call_site);
 
         span_map.insert(id, new_id);
         new_id
@@ -174,6 +174,8 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
 
         log_writeln!(log, "  Inline site span is {}", inline_span);
 
+        func.spans.add_call_site(inline_span, site.sym);
+
         let next_id = func.next_block_id;
         func.next_block_id.0 += 1;
 
@@ -196,12 +198,12 @@ pub fn do_inlining_expansion_phase(func: &mut IlFunction, sites: &mut Vec<Inline
         log_writeln!(log, "  Will inline in blocks {} through {}", first_inline_block, func.next_block_id);
 
         let first_inline_span = IlSpanId(func.spans.len() as u32);
-        for (_, (span, inlined_at)) in site.spans.into_iter() {
+        for (_, (span, inlined_at, call_site)) in site.spans.into_iter() {
             func.spans.force_append(span, if inlined_at == IlSpanId::dummy() {
                 inline_span
             } else {
                 IlSpanId(inlined_at.0 + first_inline_span.0)
-            });
+            }, call_site);
         };
 
         log_writeln!(log, "  Will inline using spans {} through {}", first_inline_span, IlSpanId(func.spans.len() as u32));

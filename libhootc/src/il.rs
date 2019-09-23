@@ -664,7 +664,7 @@ impl Default for IlRegisterMap {
 }
 
 pub struct IlSpanMap {
-    spans: Vec<(Span, IlSpanId)>
+    spans: Vec<(Span, IlSpanId, Option<SymId>)>
 }
 
 impl IlSpanMap {
@@ -672,20 +672,24 @@ impl IlSpanMap {
         IlSpanMap { spans: vec![] }
     }
 
-    pub fn get(&self, id: IlSpanId) -> (Span, IlSpanId) {
+    pub fn get(&self, id: IlSpanId) -> (Span, IlSpanId, Option<SymId>) {
         self.spans[id.0 as usize]
     }
 
+    pub fn add_call_site(&mut self, id: IlSpanId, func: SymId) {
+        self.spans[id.0 as usize].2 = Some(func)
+    }
+
     pub fn append(&mut self, span: Span, inlined_at: IlSpanId) -> IlSpanId {
-        if self.spans.last() != Some(&(span, inlined_at)) {
-            self.spans.push((span, inlined_at));
+        if self.spans.last() != Some(&(span, inlined_at, None)) {
+            self.spans.push((span, inlined_at, None));
         };
 
         IlSpanId((self.spans.len() - 1) as u32)
     }
 
-    pub fn force_append(&mut self, span: Span, inlined_at: IlSpanId) -> IlSpanId {
-        self.spans.push((span, inlined_at));
+    pub fn force_append(&mut self, span: Span, inlined_at: IlSpanId, call_site: Option<SymId>) -> IlSpanId {
+        self.spans.push((span, inlined_at, call_site));
         IlSpanId((self.spans.len() - 1) as u32)
     }
 
@@ -693,11 +697,11 @@ impl IlSpanMap {
         self.spans.len()
     }
 
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId))> + 'a {
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId, Option<SymId>))> + 'a {
         self.spans.iter().cloned().enumerate().map(|(i, s)| (IlSpanId(i as u32), s))
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId))> {
+    pub fn into_iter(self) -> impl Iterator<Item=(IlSpanId, (Span, IlSpanId, Option<SymId>))> {
         self.spans.into_iter().enumerate().map(|(i, s)| (IlSpanId(i as u32), s))
     }
 }
@@ -710,12 +714,16 @@ impl Default for IlSpanMap {
 
 impl fmt::Display for IlSpanMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (i, &(span, inlined_at)) in self.spans.iter().enumerate() {
+        for (i, &(span, inlined_at, call_site)) in self.spans.iter().enumerate() {
             let Span { lo, hi } = span;
             write!(f, "[{}]: {}:{} - {}:{}", i, lo.line, lo.col, hi.line, hi.col)?;
 
             if inlined_at != IlSpanId::dummy() {
                 write!(f, ", inlined at {}", inlined_at)?;
+            };
+
+            if let Some(call_site) = call_site {
+                write!(f, ", inline call site for {}", call_site)?;
             };
 
             writeln!(f)?;

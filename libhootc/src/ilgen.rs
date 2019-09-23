@@ -82,7 +82,7 @@ impl <'a> IlBuilder<'a> {
 
     pub fn append_instruction(&mut self, i: IlInstructionKind, span: Span) {
         let span = if i.requires_unique_span_id() {
-            self.func.spans.force_append(span, IlSpanId::dummy())
+            self.func.spans.force_append(span, IlSpanId::dummy(), None)
         } else {
             self.func.spans.append(span, IlSpanId::dummy())
         };
