@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 use crate::il::{IlFunction, IlRegisterType, IlSpanId};
@@ -210,6 +211,44 @@ pub fn write_start_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
     writeln!(out, "  .byte 0")?;
     writeln!(out, "  .byte 0")?;
 
+    // ABBREVIATION 0x07
+    writeln!(out, "  .byte 0x07")?;
+
+    //   DW_TAG_inlined_subroutine
+    writeln!(out, "  .byte 0x1d")?;
+
+    //   DW_CHILDREN_yes
+    writeln!(out, "  .byte 1")?;
+
+    //   DW_AT_abstract_origin
+    //     DW_FORM_ref4
+    writeln!(out, "  .byte 0x31")?;
+    writeln!(out, "  .byte 0x13")?;
+
+    //   DW_AT_call_file
+    //     DW_FORM_data1
+    writeln!(out, "  .byte 0x58")?;
+    writeln!(out, "  .byte 0x0b")?;
+
+    //   DW_AT_call_line
+    //     DW_FORM_data4
+    writeln!(out, "  .byte 0x59")?;
+    writeln!(out, "  .byte 0x06")?;
+
+    //   DW_AT_call_column
+    //     DW_FORM_data4
+    writeln!(out, "  .byte 0x57")?;
+    writeln!(out, "  .byte 0x06")?;
+
+    //   DW_AT_ranges
+    //     DW_FORM_sec_offset
+    writeln!(out, "  .byte 0x55")?;
+    writeln!(out, "  .byte 0x17")?;
+
+    // END OF ABBREVIATION 0x07
+    writeln!(out, "  .byte 0")?;
+    writeln!(out, "  .byte 0")?;
+
     // END OF ABBREVIATIONS
     writeln!(out, "  .byte 0")?;
 
@@ -238,6 +277,10 @@ pub fn write_start_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
 
     // DW_AT_high_pc
     writeln!(out, "  .long .Lcu_text_end-.Lcu_text_start")?;
+
+    writeln!(out)?;
+    writeln!(out, ".section .debug_ranges,\"\",@progbits")?;
+    writeln!(out, ".Ldebug_ranges_start:")?;
 
     writeln!(out, ".text")?;
     writeln!(out, ".Lcu_text_start:")?;
@@ -362,8 +405,154 @@ pub fn write_types_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
     Result::Ok(())
 }
 
+#[derive(Debug, Clone)]
+struct InlineSection {
+    pub ranges: Vec<u32>,
+    pub inline_site: IlSpanId,
+    pub subsections: HashMap<IlSpanId, InlineSection>
+}
+
+impl InlineSection {
+    fn new(inline_site: IlSpanId) -> InlineSection {
+        InlineSection { ranges: vec![], inline_site, subsections: HashMap::new() }
+    }
+
+    fn write_ranges<T: Write>(&self, out: &mut T, label_prefix: &str) -> io::Result<()> {
+        writeln!(out, ".{}debug_ranges_{}:", label_prefix, self.inline_site)?;
+
+        for &range in self.ranges.iter() {
+            writeln!(out, "  .quad .{}inl{}_start-.Lcu_text_start", label_prefix, range)?;
+            writeln!(out, "  .quad .{}inl{}_end-.Lcu_text_start", label_prefix, range)?;
+        };
+
+        writeln!(out, "  .quad 0")?;
+        writeln!(out, "  .quad 0")?;
+
+        for (_, subsection) in self.subsections.iter() {
+            subsection.write_ranges(out, label_prefix)?;
+        };
+
+        Result::Ok(())
+    }
+
+    fn write_inlined_subroutine<T: Write>(&self, out: &mut T, label_prefix: &str, il: &IlFunction, ctx: &mut WriteContext) -> io::Result<()> {
+        let span = il.spans.get(self.inline_site);
+        let inlined = ctx.sym_defs.find(span.2.unwrap());
+
+        // DW_TAG_inlined_subroutine
+        writeln!(out, "  .byte 0x07")?;
+
+        // DW_AT_abstract_origin
+        writeln!(out, "  .long .Ldebug_info_{}-.Ldebug_info_start", inlined.name)?;
+
+        // DW_AT_call_file
+        writeln!(out, "  .byte 1")?;
+
+        // DW_AT_call_line
+        writeln!(out, "  .long {}", span.0.lo.line)?;
+
+        // DW_AT_call_column
+        writeln!(out, "  .long {}", span.0.lo.col)?;
+
+        // DW_AT_ranges
+        writeln!(out, "  .long .{}debug_ranges_{}", label_prefix, self.inline_site)?;
+
+        for (_, subsection) in self.subsections.iter() {
+            subsection.write_inlined_subroutine(out, label_prefix, il, ctx)?;
+        };
+
+        writeln!(out, "  .byte 0")?;
+
+        Result::Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct InlineSectionBuilder {
+    pub next_range: u32,
+    pub range_stack: Vec<(IlSpanId, u32)>,
+    pub sections: HashMap<IlSpanId, InlineSection>
+}
+
+fn finish_ranges<T: Write>(range_stack: &mut Vec<(IlSpanId, u32)>, out: &mut T, label_prefix: &str, level: usize) -> io::Result<()> {
+    while range_stack.len() > level {
+        let (_, range) = range_stack.pop().unwrap();
+        writeln!(out, ".{}inl{}_end:", label_prefix, range)?;
+    };
+
+    Result::Ok(())
+}
+
+impl InlineSectionBuilder {
+    fn new() -> InlineSectionBuilder {
+        InlineSectionBuilder { next_range: 0, range_stack: vec![], sections: HashMap::new() }
+    }
+
+    fn move_to_site<T: Write>(&mut self, out: &mut T, label_prefix: &str, mut span: IlSpanId, il: &IlFunction) -> io::Result<()> {
+        let mut site_stack = vec![];
+
+        loop {
+            span = il.spans.get(span).1;
+            if span.0 == !0 {
+                break;
+            };
+
+            assert!(il.spans.get(span).2.is_some());
+
+            site_stack.push(span);
+        };
+
+        site_stack.reverse();
+
+        if let Some((first_mismatch, _)) = site_stack.iter().zip(self.range_stack.iter()).enumerate().filter(|&(_, (site1, (site2, _)))| site1 != site2).next() {
+            self.finish(out, label_prefix, first_mismatch)?;
+        } else if self.range_stack.len() > site_stack.len() {
+            self.finish(out, label_prefix, site_stack.len())?;
+        };
+
+        if site_stack.len() == self.range_stack.len() {
+            return Result::Ok(());
+        };
+
+        let mut section = self.sections.entry(site_stack[0]).or_insert_with(|| InlineSection::new(site_stack[0]));
+
+        if self.range_stack.is_empty() {
+            let range = self.next_range;
+            self.next_range += 1;
+
+            writeln!(out, ".{}inl{}_start:", label_prefix, range)?;
+
+            self.range_stack.push((site_stack[0], range));
+            section.ranges.push(range);
+        };
+
+        for i in 1..(self.range_stack.len()) {
+            section = section.subsections.get_mut(&site_stack[i]).unwrap();
+        };
+
+        for i in (self.range_stack.len())..(site_stack.len()) {
+            section = section.subsections.entry(site_stack[i]).or_insert_with(|| InlineSection::new(site_stack[i]));
+
+            let range = self.next_range;
+            self.next_range += 1;
+
+            writeln!(out, ".{}inl{}_start:", label_prefix, range)?;
+
+            self.range_stack.push((site_stack[i], range));
+            section.ranges.push(range);
+        };
+
+        Result::Ok(())
+    }
+
+    fn finish<T: Write>(&mut self, out: &mut T, label_prefix: &str, level: usize) -> io::Result<()> {
+        finish_ranges(&mut self.range_stack, out, label_prefix, level)
+    }
+}
+
 pub fn write_fn_to_file<T: Write>(out: &mut T, func: &Function, il: &IlFunction, fileno: usize, ctx: &mut WriteContext) -> io::Result<()> {
     let mut last_span_id = IlSpanId::dummy();
+    let mut inline_builder = InlineSectionBuilder::new();
     let func_name = &ctx.sym_defs.find(il.sym).name;
 
     writeln!(out)?;
@@ -380,6 +569,8 @@ pub fn write_fn_to_file<T: Write>(out: &mut T, func: &Function, il: &IlFunction,
 
             let span = il.spans.get(i.span).0;
             writeln!(out, ".loc {} {} {}", fileno, span.lo.line, span.lo.col)?;
+
+            inline_builder.move_to_site(out, &label_prefix, i.span, il)?;
         };
 
         if !i.node.is_label() {
@@ -389,11 +580,23 @@ pub fn write_fn_to_file<T: Write>(out: &mut T, func: &Function, il: &IlFunction,
         writeln!(out, "{}", i.pretty(&label_prefix))?;
     };
 
+    inline_builder.finish(out, &label_prefix, 0)?;
+
     writeln!(out, ".{}Lend_func:", label_prefix)?;
     writeln!(out, ".size {}, .{}Lend_func-{}", func_name, label_prefix, func_name)?;
 
+    if !inline_builder.sections.is_empty() {
+        writeln!(out)?;
+        writeln!(out, ".section .debug_ranges,\"\",@progbits")?;
+
+        for (_, section) in inline_builder.sections.iter() {
+            section.write_ranges(out, &label_prefix)?;
+        };
+    };
+
     writeln!(out)?;
     writeln!(out, ".section .debug_info,\"\",@progbits")?;
+    writeln!(out, ".Ldebug_info_{}:", func_name)?;
 
     let sym = ctx.sym_defs.find(il.sym);
     let return_ty = match *ctx.types.find_type(sym.ty) {
@@ -437,6 +640,10 @@ pub fn write_fn_to_file<T: Write>(out: &mut T, func: &Function, il: &IlFunction,
 
         // DW_AT_type
         writeln!(out, "  .long .Ldebug_type_{}-.Ldebug_info_start", param_sym.ty.0)?;
+    };
+
+    for (_, section) in inline_builder.sections.iter() {
+        section.write_inlined_subroutine(out, &label_prefix, il, ctx)?;
     };
 
     writeln!(out, "  .byte 0")?;
