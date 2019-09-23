@@ -305,7 +305,7 @@ pub fn write_types_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
                     writeln!(out, "  .byte 0x00")?;
                 },
                 1 => {
-                    // DW_tag_base_type
+                    // DW_tag_typedef
                     writeln!(out, "  .byte 0x04")?;
 
                     // DW_AT_name
@@ -315,9 +315,6 @@ pub fn write_types_to_file<T: Write>(out: &mut T, ctx: &mut WriteContext) -> io:
 
                     // DW_AT_type
                     writeln!(out, "  .long .Ldebug_type_{}-.Ldebug_info_start", component_tys[0].0)?;
-
-                    // DW_AT_byte_size
-                    writeln!(out, "  .byte 0x00")?;
                 },
                 _ => {
                     // TODO: Implement this
